@@ -16,7 +16,7 @@ app.include_router(jobs_router)
 # 測試123
 @app.get("/")
 def root():
-    return {"message": "FastAPI Pentesting Backend Running"}
+    return {"message": "MEDIUMAPI Pentesting Backend Running"}
 
 
 def signal_handler(sig, frame):
