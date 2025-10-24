@@ -7,6 +7,7 @@ from autosentou import models
 # Create all tables
 models.Base.metadata.create_all(bind=engine)
 
+# Initiate FASTAPI 
 app = FastAPI(title="Automated Pentesting Report Generator")
 
 # Include routes
