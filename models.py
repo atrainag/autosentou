@@ -64,4 +64,3 @@ class Report(Base):
 
 class StartScanRequest(BaseModel):
     target:str 
-    description: Optional[str] = None

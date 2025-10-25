@@ -9,13 +9,51 @@ from autosentou.database import SessionLocal
 
 
 def run_nmap(target: str) -> Dict[str, Any]:
-    """Run nmap and parse grepable output into a small JSON summary."""
-    cmd = ["nmap", "-sVC", "-Pn", "-p1-65535", "-oG", "-", target]
-    res = run_command(cmd )
-    stdout = res.get("stdout", "") or ""
-    parsed_ports = []
+    
+    # 初掃獲得開啓的端口（完整要加上-p1-65535）
+    print("run_nmap // 1. find open port")
+    cmd_1 = ["nmap", "-sS", "-Pn", target,"-oG", "-"]
+    res_1 = run_command(cmd_1)
+    print("A")
+    stdout_1 = res_1.get("stdout", "") or ""
+    parsed_ports_1 = []
+    for line in stdout_1.splitlines():
+        m = re.search(r"Ports:\s*(.+)$", line)
+        if m:
+            ports_field = m.group(1)
+            for p in ports_field.split(","):
+                parts = p.split("/")
+                if len(parts) >= 5:
+                    try:
+                        port_num = int(parts[0].strip())
+                    except Exception:
+                        continue
+                    state = parts[1]
+                    proto = parts[2]
 
-    for line in stdout.splitlines():
+                    if state.lower() == "open":
+                        parsed_ports_1.append(
+                            {"port": port_num, "state": state, "proto": proto}
+                        )
+
+    if not parsed_ports_1:
+        return {
+            "raw": stdout_1,
+            "parsed_ports": [],
+            "meta": {"returncode": res_1.get("returncode"), "stderr": res_1.get("stderr")},
+        }
+
+    open_ports = ",".join(str(p["port"]) for p in parsed_ports_1)
+    print("open_ports: ", open_ports)
+    
+    # 複掃獲得端口版本
+    print("run_nmap // 2. find port version")
+    cmd_2 = ["nmap", "-sVC", "-Pn", target, "-p", open_ports, "-oG", "-"]
+    res_2 = run_command(cmd_2)
+    stdout_2 = res_2.get("stdout", "") or ""
+    parsed_ports_2 = []
+
+    for line in stdout_2.splitlines():
         m = re.search(r"Ports:\s*(.+)$", line)
         if m:
             ports_field = m.group(1)
@@ -29,19 +67,17 @@ def run_nmap(target: str) -> Dict[str, Any]:
                     state = parts[1]
                     proto = parts[2]
                     service = parts[4]
-                    version = parts[5]
-                    parsed_ports.append(
-                        {
-                            "port": port_num,
-                            "state": state,
-                            "proto": proto,
-                            "version": version,
-                        }
-                    )
+                    version = parts[6]
+
+                    if state.lower() == "open":
+                        print(f"Port {port_num} => Version: {version}")
+                        parsed_ports_2.append(
+                            {"port": port_num, "state": state, "proto": proto, "service": service, "version": version}
+                        )
     return {
-        "raw": stdout,
-        "parsed_ports": parsed_ports,
-        "meta": {"returncode": res.get("returncode"), "stderr": res.get("stderr")},
+        "raw": stdout_2,
+        "parsed_ports": parsed_ports_2,
+        "meta": {"returncode": res_2.get("returncode"), "stderr": res_2.get("stderr")},
     }
 
 
@@ -82,10 +118,8 @@ def run_info_gathering_phase(db_session, job: Job) -> Optional[Phase]:
     db_session.refresh(phase)
 
     try:
-        print("NMAPRUN")
         nmap_res = run_nmap(job.target)
-        print("NMAPRUN END")
-        
+        print()
         print(nmap_res)
         print("WHOISRUN")
         whois_res = run_whois(job.target)

@@ -64,7 +64,6 @@ def _background_scan_thread(job_id: str, target: str):
         db.add(job)
         db.commit()
         db.refresh(job)
-
         run_info_gathering_phase(db, job)
 
         # quickly update job to next phase

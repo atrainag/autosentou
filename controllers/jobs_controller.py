@@ -4,11 +4,9 @@ from autosentou.services.phases.info_gathering import run_dnsenum
 from autosentou.models import StartScanRequest
 router = APIRouter(prefix="/api", tags=["jobs"])
 
-@router.post("/start-scan")
+@router.post("/start-scan12")
 def api_start_scan(payload: StartScanRequest):
     target = payload.target
-    description = payload.description
-    print(f"Starting scan for {target} with description: {description}")
     job_id = start_scan(target)
     return {"message": "Scan started", "job_id": job_id}
 
