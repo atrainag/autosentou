@@ -27,5 +27,3 @@ def signal_handler(sig, frame):
 signal.signal(signal.SIGINT, signal_handler)
 # ssh kali@192.168.181.128
 # uvicorn autosentou.main:app --reload --host 0.0.0.0 --port 8000
-
-#babi panggang

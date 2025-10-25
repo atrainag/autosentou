@@ -12,7 +12,7 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 from autosentou.database import Base
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from pydantic import Field
 
 class Job(Base):
@@ -63,5 +63,65 @@ class Report(Base):
 
 
 class StartScanRequest(BaseModel):
-    target:str 
+    target: str 
     description: Optional[str] = None
+    scan_type: Optional[str] = "comprehensive"  # comprehensive, quick, web_only, network_only
+    include_brute_force: Optional[bool] = True
+    include_sqli_testing: Optional[bool] = True
+    include_web_enumeration: Optional[bool] = True
+    custom_wordlist: Optional[str] = None
+    max_threads: Optional[int] = 10
+    timeout: Optional[int] = 300
+
+
+class Vulnerability(BaseModel):
+    id: Optional[int] = None
+    job_id: str
+    service: str
+    port: int
+    vulnerability_type: str
+    severity: str
+    description: str
+    cve_references: List[str] = []
+    cvss_score: Optional[float] = None
+    poc_available: bool = False
+    poc_successful: Optional[bool] = None
+    exploit_difficulty: Optional[str] = None
+    remediation: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
+class WebEndpoint(BaseModel):
+    id: Optional[int] = None
+    job_id: str
+    url: str
+    status_code: int
+    content_length: int
+    risk_level: str
+    matched_patterns: List[str] = []
+    ai_recommendation: Optional[str] = None
+    confidence_score: Optional[float] = None
+    created_at: Optional[datetime] = None
+
+
+class BruteForceResult(BaseModel):
+    id: Optional[int] = None
+    job_id: str
+    endpoint_url: str
+    tool_used: str
+    successful_logins: List[Dict[str, str]] = []
+    failed_attempts: int = 0
+    test_duration: Optional[float] = None
+    created_at: Optional[datetime] = None
+
+
+class SQLInjectionResult(BaseModel):
+    id: Optional[int] = None
+    job_id: str
+    endpoint_url: str
+    vulnerable: bool
+    injection_type: Optional[str] = None
+    payloads: List[str] = []
+    database_info: Dict[str, Any] = {}
+    confidence: str = "Unknown"
+    created_at: Optional[datetime] = None
