@@ -1,0 +1,25 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+sqlalchemy==2.0.23
+pydantic==2.5.0
+python-multipart==0.0.6
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-dotenv==1.0.0
+requests==2.31.0
+# AI and RAG dependencies
+google-generativeai==0.3.2
+openai==1.10.0
+chromadb==0.4.22    
+sentence-transformers==2.3.1
+langchain==0.1.0
+langchain-google-genai==0.0.6
+playwright==1.41.0
+beautifulsoup4==4.12.3
+markdown2==2.4.12
+PyPDF2==3.0.1
+# Document conversion dependencies
+weasyprint==60.1
+python-docx==1.1.0
+# Exploit search and execution dependencies
+GitPython==3.1.40

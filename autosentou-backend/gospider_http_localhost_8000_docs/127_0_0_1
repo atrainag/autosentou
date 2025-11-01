@@ -1,0 +1,64 @@
+[url] - [code-200] - http://127.0.0.1:8000
+[url] - [code-200] - http://127.0.0.1:8000
+[url] - [code-200] - http://127.0.0.1:8000
+[url] - [code-200] - http://127.0.0.1:8000/docs
+[javascript] - https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js
+[subdomains] - 127.0.0.1
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - text/plain
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - text/html
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - https://github.com/zloirock/core-js/blob/v3.31.1/LICENSE
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - https://github.com/zloirock/core-js
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - http://www.w3.org/1998/Math/MathML
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - http://www.w3.org/2000/svg
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - http://www.w3.org/1999/xhtml
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - application/octet-stream
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - fantasy-land/empty
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - fantasy-land/concat
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - fantasy-land/map
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - fantasy-land/chain
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - fantasy-land/filter
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - fantasy-land/reduce
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - https://reactjs.org/docs/error-decoder.html?invariant=
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - http://www.w3.org/1999/xlink
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - http://www.w3.org/XML/1998/namespace
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - /:
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - application/json
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - application/x-www-form-urlencoded
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - https://petstore.swagger.io/v2/swagger.json
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - https://validator.swagger.io/validator
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - multipart/form-data
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - fantasy-land/equals
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - https://swagger.io
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - components/schemas
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - components/responses
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - components/parameters
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - components/securitySchemes
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - schema/example
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - items/example
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - https://spec.openapis.org/oas/3.1/dialect/base
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - text/yaml
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - application/yaml
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - response.txt
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - text/csv
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - remarkable/linkify
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - https://twitter.com/hashtag/
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - https://www.facebook.com/hashtag/
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - https://instagram.com/explore/tags/
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - https://www.tiktok.com/tag/
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - https://twitter.com/
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - https://instagram.com/
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - https://soundcloud.com/
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - https://www.tiktok.com/@
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - https://json-schema.org/draft/2020-12/schema
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - https://example.com/
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - path/index.html
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - https://실례.com/
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - https://example.com/dictionary/{term:1}/{term}
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - /a/b/c
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - text/css
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - text/calendar
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - text/javascript
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - text/xml
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - application/x-httpd-php
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - application/rtf
+[linkfinder] - [from: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js] - application/x-sh

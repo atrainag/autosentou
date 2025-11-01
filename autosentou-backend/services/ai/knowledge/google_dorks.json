@@ -1,0 +1,298 @@
+{
+  "knowledge_type": "google_dorks",
+  "version": "1.0",
+  "last_updated": "1761825751.506536",
+  "description": "Google dorks for web reconnaissance and OSINT",
+  "dorks": [
+    {
+      "id": "dork_admin_001",
+      "dork": "site:{target} inurl:admin",
+      "category": "admin_panel",
+      "description": "Find admin panels and administrator pages",
+      "risk": "high",
+      "use_cases": [
+        "admin_discovery",
+        "general_recon"
+      ]
+    },
+    {
+      "id": "dork_admin_002",
+      "dork": "site:{target} intitle:\"admin login\"",
+      "category": "admin_panel",
+      "description": "Find admin login pages by title",
+      "risk": "high",
+      "use_cases": [
+        "admin_discovery",
+        "auth_testing"
+      ]
+    },
+    {
+      "id": "dork_admin_003",
+      "dork": "site:{target} inurl:administrator",
+      "category": "admin_panel",
+      "description": "Find administrator interfaces",
+      "risk": "high",
+      "use_cases": [
+        "admin_discovery"
+      ]
+    },
+    {
+      "id": "dork_config_001",
+      "dork": "site:{target} ext:php inurl:config",
+      "category": "config_files",
+      "description": "Find PHP configuration files",
+      "risk": "critical",
+      "use_cases": [
+        "config_discovery",
+        "info_disclosure"
+      ]
+    },
+    {
+      "id": "dork_config_002",
+      "dork": "site:{target} filetype:env",
+      "category": "config_files",
+      "description": "Find .env files (often contain credentials)",
+      "risk": "critical",
+      "use_cases": [
+        "config_discovery",
+        "credential_leakage"
+      ]
+    },
+    {
+      "id": "dork_config_003",
+      "dork": "site:{target} ext:xml | ext:conf | ext:cnf | ext:reg | ext:inf",
+      "category": "config_files",
+      "description": "Find various configuration file types",
+      "risk": "high",
+      "use_cases": [
+        "config_discovery"
+      ]
+    },
+    {
+      "id": "dork_backup_001",
+      "dork": "site:{target} ext:bak | ext:old | ext:backup",
+      "category": "backup_files",
+      "description": "Find backup files that may contain source code or credentials",
+      "risk": "high",
+      "use_cases": [
+        "backup_discovery",
+        "source_disclosure"
+      ]
+    },
+    {
+      "id": "dork_backup_002",
+      "dork": "site:{target} inurl:backup | inurl:bak",
+      "category": "backup_files",
+      "description": "Find backup directories",
+      "risk": "medium",
+      "use_cases": [
+        "backup_discovery"
+      ]
+    },
+    {
+      "id": "dork_database_001",
+      "dork": "site:{target} ext:sql | ext:db | ext:sqlite",
+      "category": "database",
+      "description": "Find database files",
+      "risk": "critical",
+      "use_cases": [
+        "database_discovery",
+        "data_leakage"
+      ]
+    },
+    {
+      "id": "dork_database_002",
+      "dork": "site:{target} inurl:phpmyadmin",
+      "category": "database",
+      "description": "Find phpMyAdmin interfaces",
+      "risk": "high",
+      "use_cases": [
+        "database_discovery",
+        "admin_discovery"
+      ]
+    },
+    {
+      "id": "dork_logs_001",
+      "dork": "site:{target} ext:log",
+      "category": "logs",
+      "description": "Find log files (may contain sensitive info)",
+      "risk": "medium",
+      "use_cases": [
+        "log_discovery",
+        "info_disclosure"
+      ]
+    },
+    {
+      "id": "dork_logs_002",
+      "dork": "site:{target} inurl:error | inurl:debug",
+      "category": "logs",
+      "description": "Find error and debug logs",
+      "risk": "medium",
+      "use_cases": [
+        "log_discovery",
+        "debug_info"
+      ]
+    },
+    {
+      "id": "dork_listing_001",
+      "dork": "site:{target} intitle:\"index of\"",
+      "category": "directory_listing",
+      "description": "Find directory listings",
+      "risk": "medium",
+      "use_cases": [
+        "directory_discovery",
+        "file_browsing"
+      ]
+    },
+    {
+      "id": "dork_creds_001",
+      "dork": "site:{target} intext:password | intext:username",
+      "category": "credentials",
+      "description": "Find pages mentioning passwords or usernames",
+      "risk": "high",
+      "use_cases": [
+        "credential_discovery"
+      ]
+    },
+    {
+      "id": "dork_api_001",
+      "dork": "site:{target} inurl:api | inurl:rest",
+      "category": "api",
+      "description": "Find API endpoints",
+      "risk": "medium",
+      "use_cases": [
+        "api_discovery"
+      ]
+    },
+    {
+      "id": "dork_api_002",
+      "dork": "site:{target} intitle:api | intitle:swagger",
+      "category": "api",
+      "description": "Find API documentation",
+      "risk": "low",
+      "use_cases": [
+        "api_discovery",
+        "documentation"
+      ]
+    },
+    {
+      "id": "dork_upload_001",
+      "dork": "site:{target} inurl:upload",
+      "category": "upload",
+      "description": "Find file upload functionality",
+      "risk": "high",
+      "use_cases": [
+        "upload_discovery",
+        "file_upload_testing"
+      ]
+    },
+    {
+      "id": "dork_dev_001",
+      "dork": "site:{target} inurl:dev | inurl:test | inurl:staging",
+      "category": "development",
+      "description": "Find development and test environments",
+      "risk": "high",
+      "use_cases": [
+        "environment_discovery"
+      ]
+    },
+    {
+      "id": "dork_git_001",
+      "dork": "site:{target} inurl:.git",
+      "category": "version_control",
+      "description": "Find exposed .git directories",
+      "risk": "critical",
+      "use_cases": [
+        "source_disclosure",
+        "credential_leakage"
+      ]
+    },
+    {
+      "id": "dork_svn_001",
+      "dork": "site:{target} inurl:.svn",
+      "category": "version_control",
+      "description": "Find exposed .svn directories",
+      "risk": "critical",
+      "use_cases": [
+        "source_disclosure"
+      ]
+    },
+    {
+      "dork": "site:{target} intext:\"custom test\"",
+      "category": "test",
+      "description": "Test dork for demonstration",
+      "risk": "low",
+      "use_cases": [
+        "testing"
+      ],
+      "id": "custom_20",
+      "added_by": "test_script"
+    },
+    {
+      "dork": "site:{target} intext:\"custom test\"",
+      "category": "test",
+      "description": "Test dork for demonstration",
+      "risk": "low",
+      "use_cases": [
+        "testing"
+      ],
+      "id": "custom_21",
+      "added_by": "test_script"
+    },
+    {
+      "dork": "site:{target} intext:\"custom test\"",
+      "category": "test",
+      "description": "Test dork for demonstration",
+      "risk": "low",
+      "use_cases": [
+        "testing"
+      ],
+      "id": "custom_22",
+      "added_by": "test_script"
+    },
+    {
+      "dork": "site:{target} intext:\"custom test\"",
+      "category": "test",
+      "description": "Test dork for demonstration",
+      "risk": "low",
+      "use_cases": [
+        "testing"
+      ],
+      "id": "custom_23",
+      "added_by": "test_script"
+    },
+    {
+      "dork": "site:{target} intext:\"custom test\"",
+      "category": "test",
+      "description": "Test dork for demonstration",
+      "risk": "low",
+      "use_cases": [
+        "testing"
+      ],
+      "id": "custom_24",
+      "added_by": "test_script"
+    },
+    {
+      "dork": "site:{target} intext:\"custom test\"",
+      "category": "test",
+      "description": "Test dork for demonstration",
+      "risk": "low",
+      "use_cases": [
+        "testing"
+      ],
+      "id": "custom_25",
+      "added_by": "test_script"
+    },
+    {
+      "dork": "site:{target} intext:\"custom test\"",
+      "category": "test",
+      "description": "Test dork for demonstration",
+      "risk": "low",
+      "use_cases": [
+        "testing"
+      ],
+      "id": "custom_26",
+      "added_by": "test_script"
+    }
+  ]
+}

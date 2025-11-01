@@ -1,0 +1,208 @@
+{
+  "knowledge_type": "vulnerable_paths",
+  "version": "1.0",
+  "last_updated": "2025-01-30",
+  "description": "Known vulnerable path patterns and sensitive files",
+  "patterns": [
+    {
+      "id": "path_admin_001",
+      "pattern": "/admin",
+      "category": "admin_panel",
+      "risk": "high",
+      "description": "Common admin panel location",
+      "what_to_check": "Authentication, default credentials, access controls"
+    },
+    {
+      "id": "path_admin_002",
+      "pattern": "/administrator",
+      "category": "admin_panel",
+      "risk": "high",
+      "description": "Alternative admin panel location",
+      "what_to_check": "Authentication, user enumeration"
+    },
+    {
+      "id": "path_admin_003",
+      "pattern": "/wp-admin",
+      "category": "admin_panel",
+      "risk": "high",
+      "description": "WordPress admin panel",
+      "what_to_check": "WordPress version, plugins, default credentials"
+    },
+    {
+      "id": "path_login_001",
+      "pattern": "/login",
+      "category": "authentication",
+      "risk": "medium",
+      "description": "Login page",
+      "what_to_check": "User enumeration, rate limiting, CAPTCHA"
+    },
+    {
+      "id": "path_config_001",
+      "pattern": "/config.php",
+      "category": "config_file",
+      "risk": "critical",
+      "description": "PHP configuration file",
+      "what_to_check": "File accessible, credentials exposed"
+    },
+    {
+      "id": "path_config_002",
+      "pattern": "/.env",
+      "category": "config_file",
+      "risk": "critical",
+      "description": "Environment variables file",
+      "what_to_check": "File downloadable, credentials in plaintext"
+    },
+    {
+      "id": "path_config_003",
+      "pattern": "/web.config",
+      "category": "config_file",
+      "risk": "high",
+      "description": "ASP.NET configuration",
+      "what_to_check": "Sensitive settings exposed"
+    },
+    {
+      "id": "path_backup_001",
+      "pattern": "/backup",
+      "category": "backup",
+      "risk": "high",
+      "description": "Backup directory",
+      "what_to_check": "Directory listing, downloadable backups"
+    },
+    {
+      "id": "path_backup_002",
+      "pattern": ".bak",
+      "category": "backup",
+      "risk": "high",
+      "description": "Backup file extension",
+      "what_to_check": "Source code exposure"
+    },
+    {
+      "id": "path_backup_003",
+      "pattern": ".old",
+      "category": "backup",
+      "risk": "medium",
+      "description": "Old file backup",
+      "what_to_check": "Outdated vulnerable code"
+    },
+    {
+      "id": "path_git_001",
+      "pattern": "/.git",
+      "category": "version_control",
+      "risk": "critical",
+      "description": "Git repository",
+      "what_to_check": "Repository accessible, credentials in commits"
+    },
+    {
+      "id": "path_git_002",
+      "pattern": "/.git/config",
+      "category": "version_control",
+      "risk": "critical",
+      "description": "Git configuration",
+      "what_to_check": "Remote URLs, credentials"
+    },
+    {
+      "id": "path_svn_001",
+      "pattern": "/.svn",
+      "category": "version_control",
+      "risk": "critical",
+      "description": "SVN repository",
+      "what_to_check": "Repository contents accessible"
+    },
+    {
+      "id": "path_db_001",
+      "pattern": "/phpmyadmin",
+      "category": "database",
+      "risk": "high",
+      "description": "phpMyAdmin interface",
+      "what_to_check": "Version, default credentials"
+    },
+    {
+      "id": "path_db_002",
+      "pattern": "/database",
+      "category": "database",
+      "risk": "high",
+      "description": "Database directory",
+      "what_to_check": "Accessible database files"
+    },
+    {
+      "id": "path_api_001",
+      "pattern": "/api",
+      "category": "api",
+      "risk": "medium",
+      "description": "API endpoint",
+      "what_to_check": "Authentication, documentation exposure"
+    },
+    {
+      "id": "path_api_002",
+      "pattern": "/swagger",
+      "category": "api",
+      "risk": "low",
+      "description": "Swagger API documentation",
+      "what_to_check": "API structure exposed"
+    },
+    {
+      "id": "path_upload_001",
+      "pattern": "/upload",
+      "category": "upload",
+      "risk": "high",
+      "description": "File upload endpoint",
+      "what_to_check": "File type validation, path traversal"
+    },
+    {
+      "id": "path_upload_002",
+      "pattern": "/uploads",
+      "category": "upload",
+      "risk": "medium",
+      "description": "Uploaded files directory",
+      "what_to_check": "Directory listing, executable files"
+    },
+    {
+      "id": "path_dev_001",
+      "pattern": "/dev",
+      "category": "development",
+      "risk": "high",
+      "description": "Development environment",
+      "what_to_check": "Debug mode, verbose errors"
+    },
+    {
+      "id": "path_dev_002",
+      "pattern": "/test",
+      "category": "development",
+      "risk": "high",
+      "description": "Test environment",
+      "what_to_check": "Weak authentication, test data"
+    },
+    {
+      "id": "path_info_001",
+      "pattern": "/phpinfo.php",
+      "category": "info_disclosure",
+      "risk": "medium",
+      "description": "PHP information page",
+      "what_to_check": "PHP version, loaded modules, paths"
+    },
+    {
+      "id": "path_info_002",
+      "pattern": "/server-status",
+      "category": "info_disclosure",
+      "risk": "medium",
+      "description": "Apache server status",
+      "what_to_check": "Server information, active connections"
+    },
+    {
+      "id": "path_robots_001",
+      "pattern": "/robots.txt",
+      "category": "info_disclosure",
+      "risk": "low",
+      "description": "Robots exclusion file",
+      "what_to_check": "Disallowed paths (might be interesting)"
+    },
+    {
+      "id": "path_sitemap_001",
+      "pattern": "/sitemap.xml",
+      "category": "info_disclosure",
+      "risk": "low",
+      "description": "Sitemap file",
+      "what_to_check": "Hidden pages, admin areas"
+    }
+  ]
+}

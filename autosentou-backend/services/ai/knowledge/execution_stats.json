@@ -1,0 +1,103 @@
+{
+  "CVE-2021-41773": {
+    "success_count": 7,
+    "attempt_count": 14,
+    "last_attempts": [
+      {
+        "target": "192.168.1.100",
+        "success": true,
+        "timestamp": "2025-01-30T12:00:00",
+        "details": {
+          "timestamp": "2025-01-30T12:00:00",
+          "confidence_score": 95.5,
+          "execution_time": 2.3
+        }
+      },
+      {
+        "target": "192.168.1.101",
+        "success": false,
+        "timestamp": "2025-01-30T12:01:00",
+        "details": {
+          "timestamp": "2025-01-30T12:01:00",
+          "error": "Connection timeout"
+        }
+      },
+      {
+        "target": "192.168.1.100",
+        "success": true,
+        "timestamp": "2025-01-30T12:00:00",
+        "details": {
+          "timestamp": "2025-01-30T12:00:00",
+          "confidence_score": 95.5,
+          "execution_time": 2.3
+        }
+      },
+      {
+        "target": "192.168.1.101",
+        "success": false,
+        "timestamp": "2025-01-30T12:01:00",
+        "details": {
+          "timestamp": "2025-01-30T12:01:00",
+          "error": "Connection timeout"
+        }
+      },
+      {
+        "target": "192.168.1.100",
+        "success": true,
+        "timestamp": "2025-01-30T12:00:00",
+        "details": {
+          "timestamp": "2025-01-30T12:00:00",
+          "confidence_score": 95.5,
+          "execution_time": 2.3
+        }
+      },
+      {
+        "target": "192.168.1.101",
+        "success": false,
+        "timestamp": "2025-01-30T12:01:00",
+        "details": {
+          "timestamp": "2025-01-30T12:01:00",
+          "error": "Connection timeout"
+        }
+      },
+      {
+        "target": "192.168.1.100",
+        "success": true,
+        "timestamp": "2025-01-30T12:00:00",
+        "details": {
+          "timestamp": "2025-01-30T12:00:00",
+          "confidence_score": 95.5,
+          "execution_time": 2.3
+        }
+      },
+      {
+        "target": "192.168.1.101",
+        "success": false,
+        "timestamp": "2025-01-30T12:01:00",
+        "details": {
+          "timestamp": "2025-01-30T12:01:00",
+          "error": "Connection timeout"
+        }
+      },
+      {
+        "target": "192.168.1.100",
+        "success": true,
+        "timestamp": "2025-01-30T12:00:00",
+        "details": {
+          "timestamp": "2025-01-30T12:00:00",
+          "confidence_score": 95.5,
+          "execution_time": 2.3
+        }
+      },
+      {
+        "target": "192.168.1.101",
+        "success": false,
+        "timestamp": "2025-01-30T12:01:00",
+        "details": {
+          "timestamp": "2025-01-30T12:01:00",
+          "error": "Connection timeout"
+        }
+      }
+    ]
+  }
+}
