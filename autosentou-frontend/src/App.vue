@@ -126,6 +126,7 @@ const mainRoutes = [
   { path: '/scan/create', meta: { title: 'New Scan', icon: '🚀' } },
   { path: '/jobs', meta: { title: 'Jobs', icon: '📋' } },
   { path: '/wordlists', meta: { title: 'Wordlists', icon: '📝' } },
+  { path: '/knowledge-base', meta: { title: 'Knowledge Base', icon: '🧠' } },
 ]
 
 const navigateTo = (path) => {

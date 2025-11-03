@@ -38,80 +38,146 @@ def run_nmap(target: str) -> Dict[str, Any]:
                         except (ValueError, IndexError):
                             continue
     
-    # If no ports found, try common ports
+    # If no ports found, try common ports as a fallback
     if not open_ports:
         open_ports = [21, 22, 23, 25, 53, 80, 110, 143, 443, 993, 995, 3389, 5432, 3306, 1433, 6379, 27017]
     
-    # Run detailed scan on open ports
-    # Using -sT (TCP connect) along with -sV (version) and -sC (scripts)
+    # Run detailed scan on open ports, including OS detection
+    # Using -sT (TCP connect) along with -sV (version), -sC (scripts), and -O (OS detection)
+    # Added --privileged for better OS detection if running as root
     if open_ports:
         ports_str = ",".join(map(str, open_ports))
-        detailed_cmd = ["nmap", "-sT", "-sV", "-sC", "-T4", "-p", ports_str, "-oG", "-", target]
+        detailed_cmd = ["nmap", "-sT", "-sV", "-sC", "-O", "--privileged", "-T4", "-p", ports_str, target]
     else:
-        detailed_cmd = ["nmap", "-sT", "-sV", "-sC", "-T4", "-p", "1-1000", "-oG", "-", target]
-    
+        detailed_cmd = ["nmap", "-sT", "-sV", "-sC", "-O", "--privileged", "-T4", "-p", "1-1000", target]
+
     res = run_command(detailed_cmd)
     stdout = res.get("stdout", "") or ""
     parsed_ports = []
     host_info = {}
-    
+    os_detection = {
+        "os_matches": [],
+        "os_classes": [],
+        "running": None,
+        "os_details": None
+    }
+
+    # Flag to indicate we are in the port scanning section of the output
+    parsing_ports = False
+    parsing_os_guesses = False
+
     for line in stdout.splitlines():
         # Parse host information
-        if line.startswith("Host:"):
-            host_match = re.search(r"Host:\s*(\S+)\s*\((\S+)\)", line)
+        if line.startswith("Nmap scan report for"):
+            host_match = re.search(r"Nmap scan report for\s*(\S+)\s*\((\S+)\)", line)
             if host_match:
-                host_info["ip"] = host_match.group(1)
-                host_info["hostname"] = host_match.group(2)
-        
-        # Parse port information
-        if "Ports:" in line:
-            ports_field = re.search(r"Ports:\s*(.+)$", line)
-            if ports_field:
-                for port_info in ports_field.group(1).split(","):
-                    parts = port_info.split("/")
-                    if len(parts) >= 5:
-                        try:
-                            port_num = int(parts[0].strip())
-                            state = parts[1].strip()
-                            proto = parts[2].strip()
-                            service = parts[4].strip()
-                            version = parts[5].strip() if len(parts) > 5 else ""
-                            
-                            # Extract additional info
-                            extra_info = ""
-                            if len(parts) > 6:
-                                extra_info = "/".join(parts[6:])
-                            
-                            parsed_ports.append({
-                                "port": port_num,
-                                "state": state,
-                                "proto": proto,
-                                "service": service,
-                                "version": version,
-                                "extra_info": extra_info,
-                                "banner": extra_info if "banner" in extra_info.lower() else ""
-                            })
-                        except (ValueError, IndexError):
-                            continue
-    
-    # Run OS detection if ports are open
-    os_info = {}
-    if parsed_ports:
-        os_cmd = ["nmap", "-O", "-T4", target]
-        os_res = run_command(os_cmd, timeout=300)
-        os_stdout = os_res.get("stdout", "") or ""
-        
-        for line in os_stdout.splitlines():
-            if "Running:" in line:
-                os_info["os"] = line.split("Running:", 1)[1].strip()
-            elif "OS details:" in line:
-                os_info["os_details"] = line.split("OS details:", 1)[1].strip()
+                host_info["hostname"] = host_match.group(1)
+                host_info["ip"] = host_match.group(2)
+            else:
+                host_match = re.search(r"Nmap scan report for\s*(\S+)", line)
+                if host_match:
+                    # Handle cases where hostname and IP are the same (e.g., scanning an IP directly)
+                    hostname = host_match.group(1)
+                    host_info["hostname"] = hostname
+                    try:
+                        # If the hostname is an IP, get the actual hostname
+                        host_info["hostname"] = socket.gethostbyaddr(hostname)[0]
+                        host_info["ip"] = hostname
+                    except (socket.herror, socket.gaierror):
+                        host_info["ip"] = hostname
+
+
+        # Start parsing ports after the header
+        if line.startswith("PORT"):
+            parsing_ports = True
+            continue
+
+        # Stop parsing ports if we hit a blank line after starting
+        if parsing_ports and not line.strip():
+            parsing_ports = False
+
+        if parsing_ports:
+            # Regex to capture port, protocol, state, service, and version
+            match = re.match(r"(\d+)/(\w+)\s+(open)\s+(\S+)\s*(.*)", line)
+            if match:
+                port_num = int(match.group(1))
+                proto = match.group(2)
+                state = match.group(3)
+                service = match.group(4)
+                version = match.group(5).strip()
+
+                parsed_ports.append({
+                    "port": port_num,
+                    "state": state,
+                    "proto": proto,
+                    "service": service,
+                    "version": version,
+                    "extra_info": "", # This would require more complex parsing of script outputs
+                    "banner": ""
+                })
+
+        # Parse OS information from various nmap output lines
+        if "Running:" in line:
+            os_detection["running"] = line.split("Running:", 1)[1].strip()
+        elif "OS details:" in line:
+            os_detection["os_details"] = line.split("OS details:", 1)[1].strip()
+            # Also add as first os_match with high confidence
+            if os_detection["os_details"]:
+                os_detection["os_matches"].append({
+                    "name": os_detection["os_details"],
+                    "accuracy": "95",
+                    "type": "General"
+                })
+        elif "Aggressive OS guesses:" in line:
+            parsing_os_guesses = True
+            # Parse the first guess on the same line
+            guesses_text = line.split("Aggressive OS guesses:", 1)[1].strip()
+            if guesses_text:
+                # Parse first guess: "OS Name (accuracy%)"
+                first_guess = guesses_text.split(',')[0].strip()
+                match = re.match(r"(.+?)\s*\((\d+)%\)", first_guess)
+                if match:
+                    os_detection["os_matches"].append({
+                        "name": match.group(1),
+                        "accuracy": match.group(2),
+                        "type": "Guess"
+                    })
+        elif parsing_os_guesses and line.strip() and not line.startswith("No exact"):
+            # Continue parsing OS guesses on subsequent lines
+            if '(' in line and '%' in line:
+                parts = line.strip().split(',')
+                for part in parts:
+                    match = re.match(r"(.+?)\s*\((\d+)%\)", part.strip())
+                    if match:
+                        os_detection["os_matches"].append({
+                            "name": match.group(1),
+                            "accuracy": match.group(2),
+                            "type": "Guess"
+                        })
+            else:
+                parsing_os_guesses = False
+
+        # Parse OS CPE (Common Platform Enumeration) for OS classes
+        if "OS CPE:" in line:
+            cpe = line.split("OS CPE:", 1)[1].strip()
+            # Extract OS info from CPE (format: cpe:/o:vendor:os:version)
+            cpe_parts = cpe.split(':')
+            if len(cpe_parts) >= 4:
+                vendor = cpe_parts[2] if len(cpe_parts) > 2 else "Unknown"
+                osfamily = cpe_parts[3] if len(cpe_parts) > 3 else "Unknown"
+                osgen = cpe_parts[4] if len(cpe_parts) > 4 else ""
+                os_detection["os_classes"].append({
+                    "vendor": vendor.replace('_', ' ').title(),
+                    "osfamily": osfamily.replace('_', ' ').title(),
+                    "osgen": osgen,
+                    "accuracy": "90"
+                })
     
     return {
         "raw": stdout,
         "parsed_ports": parsed_ports,
         "host_info": host_info,
-        "os_info": os_info,
+        "os_detection": os_detection,
         "open_ports_count": len([p for p in parsed_ports if p["state"] == "open"]),
         "meta": {"returncode": res.get("returncode"), "stderr": res.get("stderr")},
     }

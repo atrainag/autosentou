@@ -127,6 +127,13 @@
                   >
                     <DocumentTextIcon class="h-5 w-5" />
                   </button>
+                  <button
+                    @click="openConfirmDialog(job)"
+                    class="text-red-500 hover:text-red-400"
+                    title="Delete Job"
+                  >
+                    <TrashIcon class="h-5 w-5" />
+                  </button>
                 </div>
               </td>
             </tr>
@@ -159,6 +166,18 @@
         </div>
       </div>
     </div>
+
+    <!-- Confirmation Dialog -->
+    <ConfirmDialog
+      :is-open="isConfirmOpen"
+      title="Delete Scan Job"
+      :message="`Are you sure you want to delete the scan for '${jobToDelete?.target}'? This action cannot be undone.`"
+      confirm-text="Delete"
+      cancel-text="Cancel"
+      variant="danger"
+      @confirm="handleDeleteJob"
+      @close="closeConfirmDialog"
+    />
   </div>
 </template>
 
@@ -170,10 +189,16 @@ import StatusBadge from '../components/common/StatusBadge.vue'
 import LoadingSpinner from '../components/common/LoadingSpinner.vue'
 import EmptyState from '../components/common/EmptyState.vue'
 import { formatRelativeTime, formatPhaseName } from '../utils/formatters'
-import { EyeIcon, DocumentTextIcon } from '@heroicons/vue/24/outline'
+import { EyeIcon, DocumentTextIcon, TrashIcon } from '@heroicons/vue/24/outline'
+import ConfirmDialog from '../components/common/ConfirmDialog.vue'
+import { useAppStore } from '../stores/app'
 
 const router = useRouter()
 const jobsStore = useJobsStore()
+const appStore = useAppStore()
+
+const isConfirmOpen = ref(false)
+const jobToDelete = ref(null)
 
 const searchQuery = ref('')
 const selectedStatus = ref('all')
@@ -224,6 +249,29 @@ const viewJob = (jobId) => {
 
 const viewReport = (jobId) => {
   router.push(`/report/${jobId}`)
+}
+
+const openConfirmDialog = (job) => {
+  jobToDelete.value = job
+  isConfirmOpen.value = true
+}
+
+const closeConfirmDialog = () => {
+  jobToDelete.value = null
+  isConfirmOpen.value = false
+}
+
+const handleDeleteJob = async () => {
+  if (!jobToDelete.value) return
+
+  try {
+    await jobsStore.deleteJob(jobToDelete.value.id)
+    appStore.showToast({ message: `Job for '${jobToDelete.value.target}' deleted.`, type: 'success' })
+  } catch (error) {
+    appStore.showToast({ message: 'Failed to delete job.', type: 'error' })
+  }
+
+  closeConfirmDialog()
 }
 
 onMounted(async () => {

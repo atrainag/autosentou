@@ -11,6 +11,32 @@
       </router-link>
     </div>
 
+    <!-- Uncategorized Findings Alert -->
+    <div
+      v-if="kbStore.stats && kbStore.uncategorizedFindings > 0"
+      class="card bg-gradient-to-r from-yellow-900/20 to-orange-900/20 border-yellow-700/50 p-4"
+    >
+      <div class="flex items-start justify-between">
+        <div class="flex items-start space-x-3">
+          <div class="text-2xl">⚠️</div>
+          <div>
+            <h3 class="text-yellow-300 font-semibold">
+              {{ kbStore.uncategorizedFindings }} Uncategorized Finding{{
+                kbStore.uncategorizedFindings !== 1 ? 's' : ''
+              }}
+            </h3>
+            <p class="text-sm text-gray-300 mt-1">
+              These findings haven't been matched to the knowledge base yet. Review them to improve future
+              categorization.
+            </p>
+          </div>
+        </div>
+        <router-link to="/knowledge-base?tab=uncategorized" class="btn-secondary text-sm whitespace-nowrap">
+          Manage KB
+        </router-link>
+      </div>
+    </div>
+
     <!-- Loading State -->
     <LoadingSpinner v-if="jobsStore.loading" text="Loading dashboard..." />
 
@@ -85,11 +111,13 @@
 <script setup>
 import { onMounted, computed } from 'vue'
 import { useJobsStore } from '../stores/jobs'
+import { useKnowledgeBaseStore } from '../stores/knowledgeBase'
 import StatCard from '../components/dashboard/StatCard.vue'
 import RecentScans from '../components/dashboard/RecentScans.vue'
 import LoadingSpinner from '../components/common/LoadingSpinner.vue'
 
 const jobsStore = useJobsStore()
+const kbStore = useKnowledgeBaseStore()
 
 // Get recent 5 jobs
 const recentJobs = computed(() => {
@@ -99,6 +127,9 @@ const recentJobs = computed(() => {
 })
 
 onMounted(async () => {
-  await jobsStore.fetchJobs()
+  await Promise.all([
+    jobsStore.fetchJobs(),
+    kbStore.fetchStats()
+  ])
 })
 </script>

@@ -20,9 +20,15 @@
           </div>
         </div>
         <div class="flex space-x-3">
+          <router-link
+            :to="`/findings/${job.id}`"
+            class="btn-primary"
+          >
+            📊 Interactive Findings
+          </router-link>
           <button
             @click="downloadReport('pdf')"
-            class="btn-primary"
+            class="btn-secondary"
           >
             📥 Download PDF
           </button>
@@ -267,8 +273,14 @@ const downloadReport = async (format) => {
       return
     }
 
+    // Replace file extension based on requested format
+    // reportPath is like "job_id/pentest_report_detailed.pdf"
+    // We need to change it to "job_id/pentest_report_detailed.docx" for DOCX
+    const pathWithoutExt = reportPath.replace(/\.(pdf|docx|md)$/i, '')
+    const newPath = `${pathWithoutExt}.${format}`
+
     // Trigger download
-    const url = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/report/${reportPath}?format=${format}`
+    const url = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/report/${newPath}`
     window.open(url, '_blank')
 
     appStore.showSuccess(`Downloading report as ${format.toUpperCase()}`)

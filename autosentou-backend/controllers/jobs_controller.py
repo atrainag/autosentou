@@ -5,8 +5,8 @@ from pydantic import BaseModel
 from typing import Optional
 import logging
 from database import get_db
-from models import StartScanRequest
-from services.jobs_service import start_scan, get_job, get_all_jobs
+from models import StartScanRequest, ExportRequest, Finding, FindingsSummaryResponse, FindingsListResponse, FindingResponse, Job
+from services.jobs_service import start_scan, get_job, get_all_jobs, delete_job
 import os
 import shutil
 
@@ -377,6 +377,20 @@ def get_all_jobs_endpoint(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Error retrieving jobs: {str(e)}")
 
 
+@router.delete("/job/{job_id}")
+def delete_job_endpoint(job_id: str):
+    logger.info(f"Received request to delete job - Job ID: {job_id}")
+    try:
+        delete_job(job_id)
+        logger.info(f"Job deleted successfully - Job ID: {job_id}")
+        return {"message": "Job deleted successfully", "job_id": job_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting job {job_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error deleting job: {str(e)}")
+
+
 @router.get("/report/{reportPath:path}")
 def download_report(reportPath: str, format: Optional[str] = Query(None)):
     """
@@ -465,3 +479,364 @@ def download_report(reportPath: str, format: Optional[str] = Query(None)):
             status_code=500,
             detail=f"Failed to serve report: {str(e)}"
         )
+
+
+@router.get("/job/{job_id}/summary")
+def get_job_summary(job_id: str, db: Session = Depends(get_db)):
+    """
+    Get aggregated summary of findings for a job.
+    Returns counts by severity and OWASP category.
+
+    Args:
+        job_id: Job ID
+
+    Returns:
+        FindingsSummaryResponse with aggregated statistics
+    """
+    from sqlalchemy import func
+
+    logger.info(f"Fetching summary for job: {job_id}")
+
+    try:
+        # Get total findings count
+        total_findings = db.query(func.count(Finding.id)).filter(Finding.job_id == job_id).scalar() or 0
+
+        # Get counts by severity
+        severity_counts = db.query(
+            Finding.severity,
+            func.count(Finding.id)
+        ).filter(Finding.job_id == job_id).group_by(Finding.severity).all()
+
+        by_severity = {severity: count for severity, count in severity_counts}
+
+        # Get counts by OWASP category
+        owasp_counts = db.query(
+            Finding.owasp_category,
+            func.count(Finding.id)
+        ).filter(Finding.job_id == job_id).group_by(Finding.owasp_category).all()
+
+        by_owasp_category = {category: count for category, count in owasp_counts if category}
+
+        # Get counts by finding type
+        type_counts = db.query(
+            Finding.finding_type,
+            func.count(Finding.id)
+        ).filter(Finding.job_id == job_id).group_by(Finding.finding_type).all()
+
+        by_finding_type = {ftype: count for ftype, count in type_counts}
+
+        summary = FindingsSummaryResponse(
+            total_findings=total_findings,
+            by_severity=by_severity,
+            by_owasp_category=by_owasp_category,
+            by_finding_type=by_finding_type,
+            critical_findings=by_severity.get('Critical', 0),
+            high_findings=by_severity.get('High', 0),
+            medium_findings=by_severity.get('Medium', 0),
+            low_findings=by_severity.get('Low', 0)
+        )
+
+        logger.info(f"Summary generated: {total_findings} total findings")
+        return summary
+
+    except Exception as e:
+        logger.error(f"Error generating summary for job {job_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error generating summary: {str(e)}")
+
+
+@router.get("/job/{job_id}/findings")
+def get_job_findings(
+    job_id: str,
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=50, ge=1, le=500),
+    search: Optional[str] = Query(default=None),
+    severity: Optional[str] = Query(default=None),
+    owasp_category: Optional[str] = Query(default=None),
+    finding_type: Optional[str] = Query(default=None),
+    sort_by: Optional[str] = Query(default="created_at"),
+    sort_order: Optional[str] = Query(default="desc"),
+    db: Session = Depends(get_db)
+):
+    """
+    Get paginated, filtered, and sorted findings for a job.
+
+    Args:
+        job_id: Job ID
+        page: Page number (1-indexed)
+        limit: Items per page
+        search: Text search across title, description, cve_id
+        severity: Filter by severity (Critical, High, Medium, Low)
+        owasp_category: Filter by OWASP category
+        finding_type: Filter by finding type
+        sort_by: Field to sort by (severity, created_at, title)
+        sort_order: Sort order (asc, desc)
+
+    Returns:
+        FindingsListResponse with paginated findings
+    """
+    import math
+
+    logger.info(f"Fetching findings for job {job_id}: page={page}, limit={limit}, "
+               f"search={search}, severity={severity}, owasp_category={owasp_category}")
+
+    try:
+        # Build query
+        query = db.query(Finding).filter(Finding.job_id == job_id)
+
+        # Apply filters
+        if search:
+            search_filter = f"%{search}%"
+            query = query.filter(
+                (Finding.title.ilike(search_filter)) |
+                (Finding.description.ilike(search_filter)) |
+                (Finding.cve_id.ilike(search_filter))
+            )
+
+        if severity:
+            query = query.filter(Finding.severity == severity)
+
+        if owasp_category:
+            query = query.filter(Finding.owasp_category == owasp_category)
+
+        if finding_type:
+            query = query.filter(Finding.finding_type == finding_type)
+
+        # Get total count before pagination
+        total = query.count()
+
+        # Apply sorting
+        if sort_by == "severity":
+            # Custom severity ordering: Critical > High > Medium > Low
+            severity_order = {
+                'Critical': 1,
+                'High': 2,
+                'Medium': 3,
+                'Low': 4
+            }
+            # Note: This is a simplified approach. For production, use CASE statement
+            query = query.order_by(Finding.severity.desc() if sort_order == "desc" else Finding.severity.asc())
+        elif sort_by == "title":
+            query = query.order_by(Finding.title.desc() if sort_order == "desc" else Finding.title.asc())
+        else:  # default to created_at
+            query = query.order_by(Finding.created_at.desc() if sort_order == "desc" else Finding.created_at.asc())
+
+        # Apply pagination
+        offset = (page - 1) * limit
+        findings = query.offset(offset).limit(limit).all()
+
+        # Convert to response models
+        finding_responses = [FindingResponse.from_orm(f) for f in findings]
+
+        total_pages = math.ceil(total / limit) if total > 0 else 0
+
+        response = FindingsListResponse(
+            findings=finding_responses,
+            total=total,
+            page=page,
+            limit=limit,
+            total_pages=total_pages
+        )
+
+        logger.info(f"Returning {len(findings)} findings (page {page}/{total_pages}, total={total})")
+        return response
+
+    except Exception as e:
+        logger.error(f"Error fetching findings for job {job_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error fetching findings: {str(e)}")
+
+
+@router.post("/job/{job_id}/export")
+def export_job_findings(job_id: str, export_request: ExportRequest, db: Session = Depends(get_db)):
+    """
+    Export filtered findings to PDF, CSV, or JSON.
+
+    Args:
+        job_id: Job ID
+        export_request: Export parameters including format and filters
+
+    Returns:
+        FileResponse with the exported file
+    """
+    import csv
+    import json as json_module
+    from datetime import datetime
+
+    logger.info(f"Export request for job {job_id}: format={export_request.format}, "
+               f"filters={export_request.search}, {export_request.severity}")
+
+    try:
+        # Get job
+        job = db.query(Job).filter(Job.id == job_id).first()
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        # Build query with filters
+        query = db.query(Finding).filter(Finding.job_id == job_id)
+
+        if export_request.search:
+            search_filter = f"%{export_request.search}%"
+            query = query.filter(
+                (Finding.title.ilike(search_filter)) |
+                (Finding.description.ilike(search_filter)) |
+                (Finding.cve_id.ilike(search_filter))
+            )
+
+        if export_request.severity:
+            query = query.filter(Finding.severity == export_request.severity)
+
+        if export_request.owasp_category:
+            query = query.filter(Finding.owasp_category == export_request.owasp_category)
+
+        if export_request.finding_type:
+            query = query.filter(Finding.finding_type == export_request.finding_type)
+
+        # Get findings
+        findings = query.all()
+
+        # Create export directory
+        export_dir = f"reports/{job_id}/exports"
+        os.makedirs(export_dir, exist_ok=True)
+
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename_base = f"findings_export_{timestamp}"
+
+        # Export based on format
+        if export_request.format == "csv":
+            filepath = os.path.join(export_dir, f"{filename_base}.csv")
+            with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
+                fieldnames = ['Title', 'Severity', 'OWASP Category', 'Type', 'Description',
+                             'Service', 'Port', 'URL', 'CVE ID', 'Remediation']
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+
+                for finding in findings:
+                    writer.writerow({
+                        'Title': finding.title,
+                        'Severity': finding.severity,
+                        'OWASP Category': finding.owasp_category or '',
+                        'Type': finding.finding_type,
+                        'Description': finding.description or '',
+                        'Service': finding.service or '',
+                        'Port': finding.port or '',
+                        'URL': finding.url or '',
+                        'CVE ID': finding.cve_id or '',
+                        'Remediation': finding.remediation or ''
+                    })
+
+            logger.info(f"CSV export created: {filepath}")
+            return FileResponse(
+                path=filepath,
+                media_type='text/csv',
+                filename=f"{filename_base}.csv"
+            )
+
+        elif export_request.format == "json":
+            filepath = os.path.join(export_dir, f"{filename_base}.json")
+            export_data = {
+                'job_id': job_id,
+                'target': job.target,
+                'export_date': datetime.now().isoformat(),
+                'filters': {
+                    'search': export_request.search,
+                    'severity': export_request.severity,
+                    'owasp_category': export_request.owasp_category,
+                    'finding_type': export_request.finding_type
+                },
+                'findings': [
+                    {
+                        'id': f.id,
+                        'title': f.title,
+                        'description': f.description,
+                        'severity': f.severity,
+                        'owasp_category': f.owasp_category,
+                        'finding_type': f.finding_type,
+                        'service': f.service,
+                        'port': f.port,
+                        'url': f.url,
+                        'cve_id': f.cve_id,
+                        'cvss_score': f.cvss_score,
+                        'remediation': f.remediation,
+                        'poc': f.poc,
+                        'evidence': f.evidence,
+                        'created_at': f.created_at.isoformat()
+                    }
+                    for f in findings
+                ]
+            }
+
+            with open(filepath, 'w', encoding='utf-8') as jsonfile:
+                json_module.dump(export_data, jsonfile, indent=2)
+
+            logger.info(f"JSON export created: {filepath}")
+            return FileResponse(
+                path=filepath,
+                media_type='application/json',
+                filename=f"{filename_base}.json"
+            )
+
+        elif export_request.format == "pdf":
+            # Generate a simple PDF report with filtered findings
+            from services.phases.report_generation.converters import convert_html_to_pdf
+
+            # Generate HTML content
+            html_lines = []
+            html_lines.append("<html><head><style>")
+            html_lines.append("body { font-family: Arial, sans-serif; margin: 40px; }")
+            html_lines.append("h1 { color: #333; }")
+            html_lines.append(".finding { margin: 20px 0; padding: 15px; border-left: 4px solid #ddd; background: #f9f9f9; }")
+            html_lines.append(".critical { border-left-color: #dc2626; }")
+            html_lines.append(".high { border-left-color: #ea580c; }")
+            html_lines.append(".medium { border-left-color: #ca8a04; }")
+            html_lines.append(".low { border-left-color: #2563eb; }")
+            html_lines.append(".badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }")
+            html_lines.append("</style></head><body>")
+
+            html_lines.append(f"<h1>Security Findings Report</h1>")
+            html_lines.append(f"<p><strong>Target:</strong> {job.target}</p>")
+            html_lines.append(f"<p><strong>Export Date:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>")
+            html_lines.append(f"<p><strong>Total Findings:</strong> {len(findings)}</p>")
+            html_lines.append("<hr/>")
+
+            for finding in findings:
+                severity_class = finding.severity.lower() if finding.severity else 'low'
+                html_lines.append(f"<div class='finding {severity_class}'>")
+                html_lines.append(f"<h3>{finding.title}</h3>")
+                html_lines.append(f"<p><span class='badge'>{finding.severity}</span> "
+                                f"<span class='badge'>{finding.owasp_category or 'N/A'}</span></p>")
+                if finding.description:
+                    html_lines.append(f"<p><strong>Description:</strong> {finding.description}</p>")
+                if finding.service:
+                    html_lines.append(f"<p><strong>Service:</strong> {finding.service}:{finding.port}</p>")
+                if finding.url:
+                    html_lines.append(f"<p><strong>URL:</strong> {finding.url}</p>")
+                if finding.cve_id:
+                    html_lines.append(f"<p><strong>CVE:</strong> {finding.cve_id}</p>")
+                if finding.remediation:
+                    html_lines.append(f"<p><strong>Remediation:</strong> {finding.remediation}</p>")
+                html_lines.append("</div>")
+
+            html_lines.append("</body></html>")
+            html_content = "\n".join(html_lines)
+
+            filepath = os.path.join(export_dir, f"{filename_base}.pdf")
+
+            try:
+                convert_html_to_pdf(html_content, filepath)
+                logger.info(f"PDF export created: {filepath}")
+                return FileResponse(
+                    path=filepath,
+                    media_type='application/pdf',
+                    filename=f"{filename_base}.pdf"
+                )
+            except Exception as pdf_error:
+                logger.error(f"PDF generation failed: {pdf_error}")
+                raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(pdf_error)}")
+
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported export format: {export_request.format}")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error exporting findings: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error exporting findings: {str(e)}")

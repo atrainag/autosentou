@@ -177,15 +177,16 @@ def _background_scan_thread(job_id: str, target: str):
         report_data = phases_data.get('report_generation', {})
 
         # Get the PDF path from report data and make it relative to reports directory
-        pdf_full_path = report_data.get('pdf_report', f"reports/{job_id}/pentest_report.pdf")
+        # Use detailed_findings_pdf which is the actual key set by report_generator
+        pdf_full_path = report_data.get('detailed_findings_pdf', f"reports/{job_id}/pentest_report_detailed.pdf")
         # Remove 'reports/' prefix if present to store relative path
         if pdf_full_path.startswith('reports/'):
             pdf_relative_path = pdf_full_path[8:]  # Remove 'reports/' prefix
         elif pdf_full_path.startswith('/reports/'):
             pdf_relative_path = pdf_full_path[9:]  # Remove '/reports/' prefix
         else:
-            # If path doesn't start with reports/, use job_id/pentest_report.pdf as fallback
-            pdf_relative_path = f"{job_id}/pentest_report.pdf"
+            # If path doesn't start with reports/, use job_id/pentest_report_detailed.pdf as fallback
+            pdf_relative_path = f"{job_id}/pentest_report_detailed.pdf"
 
         r = Report(
             job_id=job_id,
@@ -380,6 +381,59 @@ def get_all_jobs() -> List[Dict[str, Any]]:
         raise
     finally:
         db.close()
+
+
+def delete_job(job_id: str):
+    """
+    Delete a job, its related database entries, and all associated files.
+    """
+    import shutil
+    import os
+    from services.utils.output_manager import OutputManager
+    from models import Finding, Report
+
+    logger.info(f"Attempting to delete job {job_id}")
+    db = SessionLocal()
+    try:
+        job = db.query(Job).filter(Job.id == job_id).first()
+        if not job:
+            logger.warning(f"Job {job_id} not found for deletion. It might have been already deleted.")
+            return
+
+        # 1. Delete files from filesystem
+        try:
+            output_mgr = OutputManager(job_id)
+            job_dir = output_mgr.job_dir
+            if os.path.exists(job_dir):
+                shutil.rmtree(job_dir)
+                logger.info(f"Deleted job directory: {job_dir}")
+        except Exception as e:
+            logger.error(f"Error deleting job directory for job {job_id}: {e}", exc_info=True)
+            # Proceed with DB deletion anyway
+
+        # 2. Delete associated Findings
+        db.query(Finding).filter(Finding.job_id == job_id).delete(synchronize_session='fetch')
+        logger.info(f"Deleted findings for job {job_id}")
+
+        # 3. Delete associated Report
+        db.query(Report).filter(Report.job_id == job_id).delete(synchronize_session='fetch')
+        logger.info(f"Deleted report for job {job_id}")
+
+        # 4. Delete the Job itself (phases will be cascade-deleted)
+        db.delete(job)
+        logger.info(f"Deleted job record for job {job_id}")
+
+        # 5. Commit transaction
+        db.commit()
+        logger.info(f"Job {job_id} deleted successfully from database.")
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error deleting job {job_id} from database: {e}", exc_info=True)
+        raise
+    finally:
+        db.close()
+
 
 
 def run_all_phases(job_id: str):

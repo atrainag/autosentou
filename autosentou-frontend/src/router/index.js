@@ -6,7 +6,9 @@ const ScanCreate = () => import('../views/ScanCreate.vue')
 const JobsList = () => import('../views/JobsList.vue')
 const JobDetail = () => import('../views/JobDetail.vue')
 const ReportViewer = () => import('../views/ReportViewer.vue')
+const ReportDashboard = () => import('../views/ReportDashboard.vue')
 const WordlistManager = () => import('../views/WordlistManager.vue')
+const KnowledgeBaseManager = () => import('../views/KnowledgeBaseManager.vue')
 
 const routes = [
   {
@@ -55,12 +57,30 @@ const routes = [
     },
   },
   {
+    path: '/findings/:jobId',
+    name: 'ReportDashboard',
+    component: ReportDashboard,
+    meta: {
+      title: 'Interactive Findings',
+      icon: '📊',
+    },
+  },
+  {
     path: '/wordlists',
     name: 'WordlistManager',
     component: WordlistManager,
     meta: {
       title: 'Wordlists',
       icon: '📝',
+    },
+  },
+  {
+    path: '/knowledge-base',
+    name: 'KnowledgeBase',
+    component: KnowledgeBaseManager,
+    meta: {
+      title: 'Knowledge Base',
+      icon: '🧠',
     },
   },
   {

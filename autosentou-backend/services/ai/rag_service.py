@@ -11,6 +11,7 @@ import os
 import threading
 from datetime import datetime
 import logging
+from services.ai.config import ai_config
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ class ExploitRAGService:
         self,
         persist_directory: str = "./services/ai/databases/exploit_knowledge",
         collection_name: str = "exploit_knowledge",
-        embedding_model: str = "all-MiniLM-L6-v2"
+        embedding_model: str = ai_config.embedding_model
     ):
         # Only initialize once
         if self._initialized:
@@ -772,6 +773,205 @@ Added by: {added_by}"""
             logger.error(f"✗ Error resetting collection: {e}")
 
 
+# ============================================================================
+# Knowledge Base Vulnerability Management
+# ============================================================================
+
+def add_kb_vulnerability_to_rag(kb_vulnerability):
+    """
+    Add a knowledge base vulnerability entry to RAG for intelligent matching.
+
+    Args:
+        kb_vulnerability: KnowledgeBaseVulnerability model instance
+    """
+    try:
+        from services.ai.config import ai_config
+
+        # Initialize a separate collection for KB vulnerabilities
+        kb_rag = KnowledgeBaseRAGService(
+            persist_directory=ai_config.chroma_persist_directory,
+            collection_name="knowledge_base_vulnerabilities"
+        )
+        kb_rag._ensure_initialized()
+
+        if kb_rag.fallback_mode:
+            logger.warning("Cannot add KB vulnerability to RAG in fallback mode")
+            return
+
+        # Build document for embedding
+        doc = f"""Name: {kb_vulnerability.name}
+Description: {kb_vulnerability.description}
+Severity: {kb_vulnerability.severity}
+Category: {kb_vulnerability.category or 'N/A'}
+CVE: {kb_vulnerability.cve_id or 'N/A'}
+CWE: {kb_vulnerability.cwe_id or 'N/A'}
+Remediation: {kb_vulnerability.remediation or 'N/A'}"""
+
+        # Prepare metadata
+        metadata = {
+            "kb_id": kb_vulnerability.id,
+            "name": kb_vulnerability.name,
+            "severity": kb_vulnerability.severity,
+            "category": kb_vulnerability.category or "",
+            "cve_id": kb_vulnerability.cve_id or "",
+            "cwe_id": kb_vulnerability.cwe_id or "",
+            "priority": kb_vulnerability.priority,
+            "is_active": kb_vulnerability.is_active,
+            "version": kb_vulnerability.version
+        }
+
+        # Generate embedding
+        embedding = kb_rag.embedding_model.encode([doc])[0].tolist()
+
+        # Add to collection
+        kb_rag.collection.add(
+            ids=[f"kb_{kb_vulnerability.id}"],
+            documents=[doc],
+            metadatas=[metadata],
+            embeddings=[embedding]
+        )
+
+        logger.info(f"✓ Added KB vulnerability to RAG: {kb_vulnerability.name} (ID: {kb_vulnerability.id})")
+
+    except Exception as e:
+        logger.error(f"✗ Error adding KB vulnerability to RAG: {e}", exc_info=True)
+
+
+def update_kb_vulnerability_in_rag(kb_vulnerability):
+    """
+    Update a knowledge base vulnerability entry in RAG.
+
+    Args:
+        kb_vulnerability: Updated KnowledgeBaseVulnerability model instance
+    """
+    try:
+        # Remove old entry and add updated one
+        remove_kb_vulnerability_from_rag(kb_vulnerability.id)
+        add_kb_vulnerability_to_rag(kb_vulnerability)
+
+        logger.info(f"✓ Updated KB vulnerability in RAG: {kb_vulnerability.name} (ID: {kb_vulnerability.id})")
+
+    except Exception as e:
+        logger.error(f"✗ Error updating KB vulnerability in RAG: {e}", exc_info=True)
+
+
+def remove_kb_vulnerability_from_rag(kb_id: int):
+    """
+    Remove a knowledge base vulnerability entry from RAG.
+
+    Args:
+        kb_id: Knowledge base vulnerability ID
+    """
+    try:
+        from services.ai.config import ai_config
+
+        kb_rag = KnowledgeBaseRAGService(
+            persist_directory=ai_config.chroma_persist_directory,
+            collection_name="knowledge_base_vulnerabilities"
+        )
+        kb_rag._ensure_initialized()
+
+        if kb_rag.fallback_mode:
+            return
+
+        # Delete from collection
+        kb_rag.collection.delete(ids=[f"kb_{kb_id}"])
+
+        logger.info(f"✓ Removed KB vulnerability from RAG: ID {kb_id}")
+
+    except Exception as e:
+        logger.error(f"✗ Error removing KB vulnerability from RAG: {e}", exc_info=True)
+
+
+def search_similar_vulnerabilities(query_text: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    """
+    Search for similar vulnerabilities in the knowledge base using RAG.
+
+    Args:
+        query_text: The text to search for (finding description/title)
+        top_k: Number of results to return
+
+    Returns:
+        List of matching KB entries with similarity scores
+    """
+    try:
+        from services.ai.config import ai_config
+
+        kb_rag = KnowledgeBaseRAGService(
+            persist_directory=ai_config.chroma_persist_directory,
+            collection_name="knowledge_base_vulnerabilities"
+        )
+        kb_rag._ensure_initialized()
+
+        if kb_rag.fallback_mode:
+            return []
+
+        # Generate query embedding
+        query_embedding = kb_rag.embedding_model.encode([query_text])[0].tolist()
+
+        # Search in collection
+        results = kb_rag.collection.query(
+            query_embeddings=[query_embedding],
+            n_results=top_k,
+            where={"is_active": True}  # Only search active entries
+        )
+
+        # Parse results
+        matches = []
+        if results and results['ids']:
+            for i in range(len(results['ids'][0])):
+                metadata = results['metadatas'][0][i]
+                distance = results['distances'][0][i] if 'distances' in results else 0.0
+                similarity_score = 1 - distance  # Convert distance to similarity
+
+                matches.append({
+                    'kb_id': metadata['kb_id'],
+                    'name': metadata['name'],
+                    'severity': metadata['severity'],
+                    'category': metadata['category'],
+                    'cve_id': metadata['cve_id'],
+                    'cwe_id': metadata['cwe_id'],
+                    'priority': metadata['priority'],
+                    'similarity_score': similarity_score,
+                    'document': results['documents'][0][i]
+                })
+
+        # Sort by priority and similarity
+        matches.sort(key=lambda x: (x['priority'], x['similarity_score']), reverse=True)
+
+        logger.info(f"Found {len(matches)} similar KB vulnerabilities for query")
+        return matches
+
+    except Exception as e:
+        logger.error(f"✗ Error searching similar vulnerabilities: {e}", exc_info=True)
+        return []
+
+
+class KnowledgeBaseRAGService(ExploitRAGService):
+    """
+    Specialized RAG service for Knowledge Base vulnerabilities.
+    Inherits from ExploitRAGService but uses a separate collection.
+    """
+
+    def __init__(
+        self,
+        persist_directory: str = "./services/ai/databases/knowledge_rag",
+        collection_name: str = "knowledge_base_vulnerabilities",
+        embedding_model: str = ai_config.embedding_model
+    ):
+        # Don't call parent __init__ to avoid singleton issues
+        self.persist_directory = persist_directory
+        self.collection_name = collection_name
+        self.embedding_model_name = embedding_model
+
+        self.embedding_model = None
+        self.client = None
+        self.collection = None
+        self.fallback_mode = False
+
+        logger.info(f"KnowledgeBaseRAGService initialized for collection: {collection_name}")
+
+
 # Factory function for lazy initialization
 def get_exploit_rag_service():
     """Get or create ExploitRAGService instance with lazy initialization."""
@@ -780,7 +980,6 @@ def get_exploit_rag_service():
         service = ExploitRAGService(
             persist_directory=ai_config.chroma_persist_directory,
             collection_name="exploit_knowledge",
-            embedding_model="all-MiniLM-L6-v2"
         )
     except:
         # Fallback if config doesn't exist

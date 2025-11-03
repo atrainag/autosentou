@@ -23,6 +23,8 @@ from .auth_report import generate_auth_section
 from .recommendations import generate_recommendations_section, generate_conclusion_section
 from .appendix import generate_appendix_section
 from .converters import convert_markdown_to_html, convert_html_to_pdf, convert_markdown_to_docx
+from .detailed_findings_report import generate_detailed_findings_report
+from .rag_remediation import enhance_finding_with_rag
 
 
 class ReportSection:
@@ -376,6 +378,7 @@ def create_raw_outputs_zip(job: Job, phases_data: Dict[str, Any]) -> str:
 def run_report_generation_phase(db_session, job: Job, all_phases_data: Dict[str, Any]) -> Optional[Phase]:
     """
     Generate final penetration testing report with all outputs.
+    Now includes findings population and summary-only PDF report.
     """
     phase = Phase(
         job_id=job.id,
@@ -397,54 +400,161 @@ def run_report_generation_phase(db_session, job: Job, all_phases_data: Dict[str,
         report_dir = f"reports/{job.id}"
         os.makedirs(report_dir, exist_ok=True)
 
-        # 1. Generate markdown report with dynamic numbering
-        print("→ Generating markdown report with dynamic section numbering...")
+        # 0. Populate findings table (NEW!)
+        print("→ Extracting and categorizing findings...")
+        from services.findings_populator import populate_findings_for_job
+        from models import Finding, FindingsSummaryResponse
+        from sqlalchemy import func
+
+        findings_count = populate_findings_for_job(db_session, job, all_phases_data)
+        print(f"✓ Extracted and categorized {findings_count} findings")
+
+        # Enhance findings with RAG-powered remediation
+        print("→ Enhancing findings with intelligent remediation...")
+        from models import Finding
+        findings_to_enhance = db_session.query(Finding).filter(Finding.job_id == job.id).all()
+        enhanced_count = 0
+        for finding in findings_to_enhance:
+            try:
+                enhance_finding_with_rag(finding)
+                enhanced_count += 1
+            except Exception as e:
+                print(f"  ⚠ Could not enhance finding {finding.id}: {e}")
+        if enhanced_count > 0:
+            db_session.commit()
+            print(f"✓ Enhanced {enhanced_count} findings with smart remediation")
+
+        # Get summary statistics for the report
+        total_findings = db_session.query(func.count(Finding.id)).filter(Finding.job_id == job.id).scalar() or 0
+        severity_counts = db_session.query(
+            Finding.severity,
+            func.count(Finding.id)
+        ).filter(Finding.job_id == job.id).group_by(Finding.severity).all()
+        by_severity = {severity: count for severity, count in severity_counts}
+
+        owasp_counts = db_session.query(
+            Finding.owasp_category,
+            func.count(Finding.id)
+        ).filter(Finding.job_id == job.id).group_by(Finding.owasp_category).all()
+        by_owasp_category = {category: count for category, count in owasp_counts if category}
+
+        type_counts = db_session.query(
+            Finding.finding_type,
+            func.count(Finding.id)
+        ).filter(Finding.job_id == job.id).group_by(Finding.finding_type).all()
+        by_finding_type = {ftype: count for ftype, count in type_counts}
+
+        summary_data = {
+            'total_findings': total_findings,
+            'by_severity': by_severity,
+            'by_owasp_category': by_owasp_category,
+            'by_finding_type': by_finding_type,
+            'critical_findings': by_severity.get('Critical', 0),
+            'high_findings': by_severity.get('High', 0),
+            'medium_findings': by_severity.get('Medium', 0),
+            'low_findings': by_severity.get('Low', 0)
+        }
+
+        # 1. Generate SUMMARY-ONLY markdown report
+        print("→ Generating summary-only markdown report...")
+        from .summary_report import generate_summary_report
+        summary_markdown = generate_summary_report(job, summary_data)
+
+        # Save summary markdown
+        summary_md_path = os.path.join(report_dir, "executive_summary.md")
+        with open(summary_md_path, 'w', encoding='utf-8') as f:
+            f.write(summary_markdown)
+        print(f"✓ Summary markdown saved: {summary_md_path}")
+
+        # 2. Generate DETAILED FINDINGS REPORT (NEW!)
+        print("→ Generating detailed findings report...")
+        detailed_findings_markdown = generate_detailed_findings_report(job, all_phases_data, db_session)
+
+        # Save detailed findings markdown
+        detailed_findings_md_path = os.path.join(report_dir, "detailed_findings_report.md")
+        with open(detailed_findings_md_path, 'w', encoding='utf-8') as f:
+            f.write(detailed_findings_markdown)
+        print(f"✓ Detailed findings report saved: {detailed_findings_md_path}")
+
+        # 3. Generate legacy detailed markdown report with dynamic numbering (for backward compatibility)
+        print("→ Generating detailed markdown report...")
         markdown_content = generate_markdown_report(job, all_phases_data)
 
-        # Save markdown
-        markdown_path = os.path.join(report_dir, "pentest_report.md")
+        # Save detailed markdown (for backup/reference)
+        markdown_path = os.path.join(report_dir, "pentest_report_detailed.md")
         with open(markdown_path, 'w', encoding='utf-8') as f:
             f.write(markdown_content)
-        print(f"✓ Markdown report saved: {markdown_path}")
+        print(f"✓ Detailed markdown report saved: {markdown_path}")
 
-        # 2. Convert to simple HTML
-        print("→ Converting to clean HTML...")
-        html_content = convert_markdown_to_html(markdown_content, f"Penetration Testing Report - {job.target}")
+        # 4. Convert SUMMARY to HTML (for PDF generation)
+        print("→ Converting summary to HTML...")
+        summary_html = convert_markdown_to_html(summary_markdown, f"Executive Summary - {job.target}")
 
-        # Save HTML
-        html_path = os.path.join(report_dir, "pentest_report.html")
-        with open(html_path, 'w', encoding='utf-8') as f:
-            f.write(html_content)
-        print(f"✓ HTML report saved: {html_path}")
+        # Save summary HTML
+        summary_html_path = os.path.join(report_dir, "executive_summary.html")
+        with open(summary_html_path, 'w', encoding='utf-8') as f:
+            f.write(summary_html)
+        print(f"✓ Summary HTML saved: {summary_html_path}")
 
-        # 3. Convert to PDF
-        print("→ Converting to PDF...")
-        pdf_path = os.path.join(report_dir, "pentest_report.pdf")
-        pdf_success = False
+        # 5. Convert summary to PDF (QUICK SUMMARY REPORT)
+        print("→ Converting summary to PDF...")
+        summary_pdf_path = os.path.join(report_dir, "executive_summary.pdf")
+        summary_pdf_success = False
         try:
-            pdf_success = convert_html_to_pdf(html_content, pdf_path)
+            summary_pdf_success = convert_html_to_pdf(summary_html, summary_pdf_path)
+            print(f"✓ Summary PDF generated: {summary_pdf_path}")
         except Exception as pdf_error:
-            print(f"⚠ PDF conversion failed: {pdf_error}")
+            print(f"⚠ Summary PDF conversion failed: {pdf_error}")
             print("  Continuing with other formats...")
 
-        # 4. Convert to DOCX
-        print("→ Converting to DOCX...")
-        docx_path = os.path.join(report_dir, "pentest_report.docx")
+        # 6. Convert DETAILED FINDINGS REPORT to HTML
+        print("→ Converting detailed findings report to HTML...")
+        detailed_findings_html = convert_markdown_to_html(detailed_findings_markdown, f"Detailed Findings Report - {job.target}")
+
+        # Save detailed findings HTML
+        detailed_findings_html_path = os.path.join(report_dir, "detailed_findings_report.html")
+        with open(detailed_findings_html_path, 'w', encoding='utf-8') as f:
+            f.write(detailed_findings_html)
+        print(f"✓ Detailed findings HTML saved: {detailed_findings_html_path}")
+
+        # 7. Convert detailed findings report to PDF (PRIMARY COMPREHENSIVE REPORT)
+        print("→ Converting detailed findings report to PDF...")
+        pdf_path = os.path.join(report_dir, "pentest_report_detailed.pdf")
+        pdf_success = False
+        try:
+            pdf_success = convert_html_to_pdf(detailed_findings_html, pdf_path)
+            print(f"✓ Detailed findings PDF generated: {pdf_path}")
+        except Exception as pdf_error:
+            print(f"⚠ Detailed findings PDF conversion failed: {pdf_error}")
+            print("  Continuing with other formats...")
+
+        # 8. Also convert legacy detailed report to HTML (for web viewing)
+        print("→ Converting legacy detailed report to HTML...")
+        html_content = convert_markdown_to_html(markdown_content, f"Detailed Penetration Testing Report - {job.target}")
+        html_path = os.path.join(report_dir, "pentest_report_legacy.html")
+        with open(html_path, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+        print(f"✓ Legacy HTML report saved: {html_path}")
+
+        # 9. Convert detailed findings report to DOCX
+        print("→ Converting detailed findings report to DOCX...")
+        docx_path = os.path.join(report_dir, "pentest_report_detailed.docx")
         docx_success = False
         try:
-            docx_success = convert_markdown_to_docx(markdown_content, docx_path)
+            docx_success = convert_markdown_to_docx(detailed_findings_markdown, docx_path)
+            print(f"✓ Detailed findings DOCX generated: {docx_path}")
         except Exception as docx_error:
             print(f"⚠ DOCX conversion failed: {docx_error}")
             print("  Continuing with other formats...")
 
-        # 5. Save JSON data
+        # 10. Save JSON data
         print("→ Saving JSON data...")
         json_path = os.path.join(report_dir, "pentest_data.json")
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(all_phases_data, f, indent=2, default=str)
         print(f"✓ JSON data saved: {json_path}")
 
-        # 6. Create raw outputs ZIP using OutputManager
+        # 11. Create raw outputs ZIP using OutputManager
         print("→ Creating evidence archive...")
         output_manager = get_output_manager(job.id)
         zip_path = output_manager.create_evidence_archive()
@@ -455,15 +565,35 @@ def run_report_generation_phase(db_session, job: Job, all_phases_data: Dict[str,
 
         # Update phase data
         phase.data = {
-            'markdown_report': markdown_path,
-            'html_report': html_path,
-            'pdf_report': pdf_path if pdf_success else None,
-            'docx_report': docx_path if docx_success else None,
+            # Executive summary reports
+            'summary_markdown': summary_md_path,
+            'summary_html': summary_html_path,
+            'summary_pdf': summary_pdf_path if summary_pdf_success else None,
+
+            # Detailed findings reports (NEW - PRIMARY REPORTS)
+            'detailed_findings_markdown': detailed_findings_md_path,
+            'detailed_findings_html': detailed_findings_html_path,
+            'detailed_findings_pdf': pdf_path if pdf_success else None,
+            'detailed_findings_docx': docx_path if docx_success else None,
+
+            # Legacy detailed reports (for backward compatibility)
+            'legacy_markdown': markdown_path,
+            'legacy_html': html_path,
+
+            # Data and evidence
             'json_data': json_path,
             'raw_outputs_zip': zip_path,
+
+            # Statistics
+            'findings_extracted': findings_count,
+            'findings_enhanced': enhanced_count,
+            'findings_summary': summary_data,
+
+            # Status flags
             'report_generated': True,
-            'pdf_generated': pdf_success,
-            'docx_generated': docx_success,
+            'summary_pdf_generated': summary_pdf_success,
+            'detailed_pdf_generated': pdf_success,
+            'detailed_docx_generated': docx_success,
             'generation_timestamp': datetime.now().isoformat()
         }
         phase.status = "success"
@@ -475,18 +605,37 @@ def run_report_generation_phase(db_session, job: Job, all_phases_data: Dict[str,
         print("\n" + "="*60)
         print("REPORT GENERATION COMPLETED")
         print("="*60)
-        print(f"→ Markdown: {markdown_path}")
-        print(f"→ HTML: {html_path}")
+        print("\n📊 EXECUTIVE SUMMARY REPORTS:")
+        print(f"  → Markdown: {summary_md_path}")
+        print(f"  → HTML: {summary_html_path}")
+        if summary_pdf_success:
+            print(f"  → PDF: {summary_pdf_path}")
+        else:
+            print(f"  ⚠ PDF: Failed to generate")
+
+        print("\n📋 DETAILED FINDINGS REPORTS (PRIMARY):")
+        print(f"  → Markdown: {detailed_findings_md_path}")
+        print(f"  → HTML: {detailed_findings_html_path}")
         if pdf_success:
-            print(f"→ PDF: {pdf_path}")
+            print(f"  → PDF: {pdf_path}")
         else:
-            print(f"⚠ PDF: Failed to generate")
+            print(f"  ⚠ PDF: Failed to generate")
         if docx_success:
-            print(f"→ DOCX: {docx_path}")
+            print(f"  → DOCX: {docx_path}")
         else:
-            print(f"⚠ DOCX: Failed to generate")
-        print(f"→ JSON: {json_path}")
-        print(f"→ Raw Outputs: {zip_path}")
+            print(f"  ⚠ DOCX: Failed to generate")
+
+        print("\n📦 DATA & EVIDENCE:")
+        print(f"  → JSON: {json_path}")
+        print(f"  → Raw Outputs: {zip_path}")
+
+        print("\n📈 STATISTICS:")
+        print(f"  → Findings Extracted: {findings_count}")
+        print(f"  → Findings Enhanced with RAG: {enhanced_count}")
+        print(f"  → Critical: {summary_data.get('critical_findings', 0)}")
+        print(f"  → High: {summary_data.get('high_findings', 0)}")
+        print(f"  → Medium: {summary_data.get('medium_findings', 0)}")
+        print(f"  → Low: {summary_data.get('low_findings', 0)}")
         print("="*60 + "\n")
 
         return phase

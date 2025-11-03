@@ -33,11 +33,22 @@
           </button>
           <router-link
             v-if="job.report_generated"
-            :to="`/report/${job.id}`"
+            :to="`/findings/${job.id}`"
             class="btn-primary"
           >
-            📄 View Report
+            📊 Interactive Findings
           </router-link>
+          <router-link
+            v-if="job.report_generated"
+            :to="`/report/${job.id}`"
+            class="btn-secondary"
+          >
+            📄 Summary PDF
+          </router-link>
+          <button @click="openConfirmDialog" class="btn-danger">
+            <TrashIcon class="h-5 w-5 mr-2" />
+            Delete
+          </button>
         </div>
       </div>
 
@@ -87,6 +98,74 @@
                   <div><span class="text-gray-400">Target:</span> {{ infoGatheringData.target }}</div>
                   <div><span class="text-gray-400">Type:</span> {{ infoGatheringData.is_local_target ? 'Local/Private' : 'Public/External' }}</div>
                   <div v-if="infoGatheringData.nmap"><span class="text-gray-400">Open Ports:</span> {{ infoGatheringData.nmap.open_ports_count || 0 }}</div>
+                </div>
+              </div>
+
+              <!-- OS Detection -->
+              <div v-if="infoGatheringData.nmap?.os_detection" class="mb-4">
+                <h4 class="text-lg font-medium text-white mb-3">Operating System Detection</h4>
+
+                <!-- OS Matches -->
+                <div v-if="infoGatheringData.nmap.os_detection.os_matches?.length > 0" class="p-4 bg-cyber-dark rounded-lg mb-3">
+                  <h5 class="text-md font-medium text-cyber-cyan mb-2">Detected Operating Systems</h5>
+                  <div class="space-y-2">
+                    <div
+                      v-for="(osMatch, index) in infoGatheringData.nmap.os_detection.os_matches.slice(0, 5)"
+                      :key="index"
+                      class="flex items-center justify-between p-2 bg-gray-800 rounded"
+                    >
+                      <span class="text-gray-300 text-sm">{{ osMatch.name }}</span>
+                      <div class="flex items-center space-x-2">
+                        <span
+                          :class="[
+                            'badge text-xs',
+                            parseInt(osMatch.accuracy) >= 90 ? 'bg-green-600' :
+                            parseInt(osMatch.accuracy) >= 70 ? 'bg-yellow-600' :
+                            'bg-orange-600'
+                          ]"
+                        >
+                          {{ osMatch.accuracy }}% accuracy
+                        </span>
+                        <span class="badge bg-gray-700 text-xs">{{ osMatch.type }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- OS Classes -->
+                <div v-if="infoGatheringData.nmap.os_detection.os_classes?.length > 0" class="p-4 bg-cyber-dark rounded-lg mb-3">
+                  <h5 class="text-md font-medium text-cyber-cyan mb-2">Operating System Classes</h5>
+                  <div class="space-y-2">
+                    <div
+                      v-for="(osClass, index) in infoGatheringData.nmap.os_detection.os_classes"
+                      :key="index"
+                      class="text-sm text-gray-300"
+                    >
+                      <div class="flex items-center space-x-2">
+                        <span class="text-white">{{ osClass.vendor }} {{ osClass.osfamily }}</span>
+                        <span v-if="osClass.osgen" class="text-gray-500">{{ osClass.osgen }}</span>
+                        <span class="badge bg-blue-600 text-xs">{{ osClass.accuracy }}%</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Fallback for simple OS info -->
+                <div v-else-if="infoGatheringData.nmap.os_detection.running || infoGatheringData.nmap.os_detection.os_details" class="p-4 bg-cyber-dark rounded-lg">
+                  <h5 class="text-md font-medium text-cyber-cyan mb-2">OS Information</h5>
+                  <div class="text-sm text-gray-300 space-y-1">
+                    <div v-if="infoGatheringData.nmap.os_detection.running">
+                      <span class="text-gray-400">Running:</span> {{ infoGatheringData.nmap.os_detection.running }}
+                    </div>
+                    <div v-if="infoGatheringData.nmap.os_detection.os_details">
+                      <span class="text-gray-400">Details:</span> {{ infoGatheringData.nmap.os_detection.os_details }}
+                    </div>
+                  </div>
+                </div>
+
+                <!-- No OS detection available -->
+                <div v-else class="p-4 bg-cyber-dark rounded-lg text-sm text-gray-500">
+                  OS detection not available (may require elevated privileges or target is blocking detection)
                 </div>
               </div>
 
@@ -282,13 +361,29 @@
         </router-link>
       </template>
     </EmptyState>
+
+    <!-- Confirmation Dialog -->
+    <ConfirmDialog
+      v-if="job"
+      :is-open="isConfirmOpen"
+      title="Delete Scan Job"
+      :message="`Are you sure you want to delete the scan for '${job.target}'? This action cannot be undone.`"
+      confirm-text="Delete"
+      cancel-text="Cancel"
+      variant="danger"
+      @confirm="handleDeleteJob"
+      @close="closeConfirmDialog"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useJobsStore } from '../stores/jobs'
+import { useAppStore } from '../stores/app'
+import ConfirmDialog from '../components/common/ConfirmDialog.vue'
+import { TrashIcon } from '@heroicons/vue/24/outline'
 import StatusBadge from '../components/common/StatusBadge.vue'
 import LoadingSpinner from '../components/common/LoadingSpinner.vue'
 import EmptyState from '../components/common/EmptyState.vue'
@@ -297,10 +392,13 @@ import VulnerabilityCard from '../components/job-detail/VulnerabilityCard.vue'
 import { formatDate, formatRelativeTime, getSeverityColor } from '../utils/formatters'
 
 const route = useRoute()
+const router = useRouter()
 const jobsStore = useJobsStore()
+const appStore = useAppStore()
 
 const activeTab = ref('info_gathering')
 const selectedSeverity = ref('all')
+const isConfirmOpen = ref(false)
 
 const job = computed(() => jobsStore.currentJob)
 
@@ -415,6 +513,28 @@ const filteredVulnerabilities = computed(() => {
 
 const refreshJob = async () => {
   await jobsStore.fetchJob(route.params.id)
+}
+
+const openConfirmDialog = () => {
+  isConfirmOpen.value = true
+}
+
+const closeConfirmDialog = () => {
+  isConfirmOpen.value = false
+}
+
+const handleDeleteJob = async () => {
+  if (!job.value) return
+
+  try {
+    await jobsStore.deleteJob(job.value.id)
+    appStore.showToast({ message: `Job for '${job.value.target}' deleted.`, type: 'success' })
+    router.push('/') // Navigate back to the jobs list
+  } catch (error) {
+    appStore.showToast({ message: 'Failed to delete job.', type: 'error' })
+  }
+
+  closeConfirmDialog()
 }
 
 onMounted(async () => {
