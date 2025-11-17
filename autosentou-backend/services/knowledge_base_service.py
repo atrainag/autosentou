@@ -377,13 +377,12 @@ def import_vulnerabilities(
 
 def export_vulnerabilities(
     db: Session,
-    format: str = 'json',
     category: Optional[str] = None,
     is_active: bool = True
 ) -> str:
     """
-    Export vulnerabilities to JSON or CSV format.
-    Returns the file path or data string.
+    Export vulnerabilities to JSON format.
+    Returns JSON string.
     """
     query = db.query(KnowledgeBaseVulnerability)
 
@@ -395,23 +394,20 @@ def export_vulnerabilities(
 
     vulnerabilities = query.all()
 
-    if format == 'json':
-        data = []
-        for vuln in vulnerabilities:
-            data.append({
-                'name': vuln.name,
-                'description': vuln.description,
-                'severity': vuln.severity,
-                'remediation': vuln.remediation,
-                'cve_id': vuln.cve_id,
-                'cwe_id': vuln.cwe_id,
-                'category': vuln.category,
-                'priority': vuln.priority
-            })
-        return json.dumps(data, indent=2)
-
-    # CSV format not yet implemented
-    return ""
+    # Export as JSON
+    data = []
+    for vuln in vulnerabilities:
+        data.append({
+            'name': vuln.name,
+            'description': vuln.description,
+            'severity': vuln.severity,
+            'remediation': vuln.remediation,
+            'cve_id': vuln.cve_id,
+            'cwe_id': vuln.cwe_id,
+            'category': vuln.category,
+            'priority': vuln.priority
+        })
+    return json.dumps(data, indent=2)
 
 
 # ============================================================================

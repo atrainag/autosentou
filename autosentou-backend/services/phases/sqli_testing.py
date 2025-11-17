@@ -9,11 +9,9 @@ from services.utils.system import run_command
 from services.utils.output_manager import get_output_manager
 from models import Phase, Job
 from services.ai.ai_service import init_ai_service
-from services.ai.rag_service import init_exploit_rag_service
 
 logger = logging.getLogger(__name__)
 ai_service = init_ai_service()
-rag_service = init_exploit_rag_service()
 
 
 def run_sqlmap(url: str, output_dir: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
@@ -501,22 +499,9 @@ def run_sqli_testing_phase(db_session, job: Job, web_enum_data: Dict[str, Any]) 
             
             if sqli_result['vulnerable']:
                 vulnerable_count += 1
-                
-                # Store in RAG for future reference
-                try:
-                    vuln_text = f"SQL injection found at {url}. Type: {sqli_result.get('injection_type')}. DBMS: {sqli_result.get('dbms')}."
-                    rag_service.add_vulnerability(
-                        vuln_id=f"sqli_{url}_{datetime.now().timestamp()}",
-                        description=vuln_text,
-                        metadata={
-                            'type': 'sqli',
-                            'severity': ai_analysis.get('severity', 'High'),
-                            'url': url,
-                            'dbms': sqli_result.get('dbms', 'Unknown')
-                        }
-                    )
-                except Exception as e:
-                    logger.error(f"[Job {job.id}] Error adding SQLi to RAG: {e}")
+
+                # Note: CVE/exploit caching removed - findings are saved to DB instead
+                # OWASP pattern matching is handled by findings_populator
             
             sqli_results.append(combined_result)
         

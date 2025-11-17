@@ -1,6 +1,7 @@
 """
-RAG-Powered Remediation Suggestions
-Uses the exploit knowledge base to provide intelligent, context-aware remediation guidance.
+Remediation Suggestions
+Provides remediation guidance based on finding type and severity.
+Note: CVE-specific remediation is fetched from APIs (ExploitDB, GitHub) on-demand.
 """
 from typing import Dict, Any, List, Optional
 import logging
@@ -10,63 +11,28 @@ logger = logging.getLogger(__name__)
 
 def get_smart_remediation(finding_data: Dict[str, Any]) -> Dict[str, str]:
     """
-    Get smart remediation suggestions using RAG service.
+    Get remediation suggestions based on finding type.
 
     Args:
         finding_data: Dictionary containing finding information (CVE, service, version, etc.)
 
     Returns:
-        Dictionary with enhanced remediation info
+        Dictionary with remediation info
     """
     try:
-        from services.ai.rag_service import init_exploit_rag_service
+        # Note: ExploitRAGService removed - use API-based exploit search instead
+        # This now provides generic remediation based on finding type
 
-        rag_service = init_exploit_rag_service()
-
-        # Extract relevant information
-        cve_id = finding_data.get('cve_id')
-        service = finding_data.get('service', '')
-        version = finding_data.get('version', '')
-        severity = finding_data.get('severity', '')
-
-        if not service:
-            return {
-                'remediation': 'Update the affected component to the latest version.',
-                'references': [],
-                'exploit_available': False
-            }
-
-        # Query RAG for matching exploits
-        exploits = rag_service.find_matching_exploits(
-            service=service,
-            version=version,
-            n_results=3
-        )
-
-        if exploits:
-            # Use the best matching exploit data
-            best_match = exploits[0]
-
-            remediation_steps = _generate_remediation_from_exploit(best_match, service, version)
-            references = best_match.get('exploit_urls', [])
-
-            if cve_id and cve_id == best_match.get('cve_id'):
-                references.insert(0, f"https://nvd.nist.gov/vuln/detail/{cve_id}")
-
-            return {
-                'remediation': remediation_steps,
-                'references': references,
-                'exploit_available': best_match.get('poc_available', False),
-                'exploit_complexity': best_match.get('attack_complexity', 'unknown'),
-                'requires_auth': best_match.get('requires_auth', False)
-            }
-        else:
-            # Fallback to generic remediation
-            return _generate_generic_remediation(finding_data)
+        # Use generic remediation (CVE-specific data from APIs if needed)
+        return _generate_generic_remediation(finding_data)
 
     except Exception as e:
-        logger.warning(f"RAG service not available or error occurred: {e}")
-        return _generate_generic_remediation(finding_data)
+        logger.error(f"Error generating remediation: {e}")
+        return {
+            'remediation': 'Update the affected component to the latest version and follow security best practices.',
+            'references': [],
+            'exploit_available': False
+        }
 
 
 def _generate_remediation_from_exploit(exploit: Dict[str, Any], service: str, version: str) -> str:
