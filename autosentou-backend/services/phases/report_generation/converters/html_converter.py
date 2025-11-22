@@ -158,6 +158,14 @@ def convert_markdown_to_html(markdown_content: str, title: str = "Penetration Te
             page-break-after: always;
         }}
 
+        img {{
+            max-width: 100%;
+            height: auto;
+            display: block;
+            margin: 15px auto;
+            border: 1px solid #ccc;
+        }}
+
         @media print {{
             body {{
                 max-width: 100%;

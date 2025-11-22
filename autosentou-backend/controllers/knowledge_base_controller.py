@@ -545,6 +545,163 @@ def get_uncategorized_findings(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+# Global cancellation flag for re-categorization
+_recategorization_cancelled = False
+
+@router.post("/recategorize-uncategorized")
+def recategorize_uncategorized_findings(
+    limit: Optional[int] = Query(None, description="Max number of findings to process (default: all)"),
+    db: Session = Depends(get_db)
+):
+    """
+    Bulk re-categorize all uncategorized findings using AI.
+
+    This is useful for retrying findings that failed categorization due to API rate limits or errors.
+    Uses rate limiting to avoid hitting the Gemini API limit (10 req/min).
+
+    - **limit**: Maximum number of findings to process (optional, default: all uncategorized)
+    """
+    import time
+    from services.ai.ai_categorizer import ai_categorize_finding
+
+    global _recategorization_cancelled
+    _recategorization_cancelled = False  # Reset cancellation flag
+
+    try:
+        # Get uncategorized findings
+        query = db.query(Finding).filter(Finding.is_categorized == False)
+
+        if limit:
+            findings = query.limit(limit).all()
+        else:
+            findings = query.all()
+
+        total_findings = len(findings)
+
+        if total_findings == 0:
+            return {
+                "message": "No uncategorized findings to process",
+                "total": 0,
+                "successful": 0,
+                "failed": 0
+            }
+
+        logger.info(f"Starting bulk re-categorization of {total_findings} uncategorized findings")
+
+        successful = 0
+        failed = 0
+        last_ai_call_time = 0
+
+        for idx, finding in enumerate(findings, 1):
+            # Check for cancellation
+            if _recategorization_cancelled:
+                logger.warning(f"Re-categorization cancelled by user at {idx}/{total_findings}")
+                db.commit()  # Commit progress so far
+                return {
+                    "message": f"Re-categorization cancelled by user",
+                    "total": total_findings,
+                    "successful": successful,
+                    "failed": failed,
+                    "cancelled_at": idx - 1
+                }
+
+            try:
+                logger.info(f"[{idx}/{total_findings}] Processing: {finding.title}")
+
+                # Rate limiting: Wait 6 seconds between AI calls
+                time_since_last_call = time.time() - last_ai_call_time
+                if time_since_last_call < 6 and idx > 1:  # Skip first iteration
+                    sleep_time = 6 - time_since_last_call
+                    logger.info(f"  ⏱ Rate limit: waiting {sleep_time:.1f}s...")
+                    time.sleep(sleep_time)
+
+                # Prepare finding data for AI categorization
+                finding_data = {
+                    'title': finding.title,
+                    'description': finding.description,
+                    'finding_type': finding.finding_type,
+                    'url': finding.url,
+                    'service': finding.service,
+                    'port': finding.port,
+                    'cve_id': finding.cve_id,
+                    'evidence': finding.evidence
+                }
+
+                last_ai_call_time = time.time()
+                ai_result = ai_categorize_finding(finding_data)
+
+                if ai_result:
+                    # Update finding with AI categorization
+                    finding.severity = ai_result.get('severity', finding.severity or 'Medium')
+                    finding.owasp_category = ai_result.get('owasp_category', finding.owasp_category)
+                    if ai_result.get('remediation') and not finding.remediation:
+                        finding.remediation = ai_result['remediation']
+                    finding.is_categorized = True
+
+                    # Try to create KB entry for future matches
+                    try:
+                        kb_entry = kb_service.create_kb_from_finding(
+                            db=db,
+                            finding_data=finding_data,
+                            ai_categorization=ai_result
+                        )
+                        if kb_entry:
+                            kb_service.link_finding_to_kb(
+                                db=db,
+                                finding_id=finding.id,
+                                kb_id=kb_entry.id,
+                                similarity_score=1.0
+                            )
+                    except Exception as kb_error:
+                        logger.warning(f"  ⚠ KB creation failed: {kb_error}")
+
+                    successful += 1
+                    logger.info(f"  ✓ Categorized: {ai_result['severity']} / {ai_result.get('owasp_category', 'N/A')}")
+                else:
+                    failed += 1
+                    logger.warning(f"  ✗ AI categorization failed")
+
+            except Exception as e:
+                failed += 1
+                logger.error(f"  ✗ Error processing finding {finding.id}: {e}")
+                continue
+
+        # Commit all changes
+        db.commit()
+
+        logger.info(f"✓ Bulk re-categorization complete: {successful} successful, {failed} failed")
+
+        return {
+            "message": f"Processed {total_findings} uncategorized findings",
+            "total": total_findings,
+            "successful": successful,
+            "failed": failed
+        }
+
+    except Exception as e:
+        logger.error(f"Error in bulk re-categorization: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.post("/cancel-recategorization")
+def cancel_recategorization():
+    """
+    Cancel the ongoing re-categorization process.
+
+    This sets a flag that the re-categorization loop checks between each finding.
+    Progress will be saved up to the point of cancellation.
+    """
+    global _recategorization_cancelled
+    _recategorization_cancelled = True
+
+    logger.info("Re-categorization cancellation requested")
+
+    return {
+        "message": "Cancellation requested - process will stop after current finding",
+        "cancelled": True
+    }
+
+
 # ============================================================================
 # Statistics
 # ============================================================================

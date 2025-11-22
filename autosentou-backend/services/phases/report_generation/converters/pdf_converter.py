@@ -82,6 +82,7 @@ def convert_html_to_pdf(html_content: str, output_path: str) -> bool:
                 margin: 15px 0;
                 font-size: 9pt;
                 page-break-inside: avoid;
+                table-layout: fixed;
             }
 
             table thead {
@@ -99,6 +100,22 @@ def convert_html_to_pdf(html_content: str, output_path: str) -> bool:
             table td {
                 padding: 8px;
                 border: 1px solid #333;
+                word-wrap: break-word;
+                overflow-wrap: break-word;
+                word-break: break-word;
+                max-width: 200px;
+            }
+
+            /* Evidence column specific styling - force wrapping */
+            table td:last-child,
+            table td.evidence {
+                word-wrap: break-word;
+                overflow-wrap: break-word;
+                word-break: break-all;
+                white-space: pre-wrap;
+                max-width: 250px;
+                font-family: 'Courier New', monospace;
+                font-size: 8pt;
             }
 
             table tbody tr:nth-child(even) {
@@ -112,6 +129,9 @@ def convert_html_to_pdf(html_content: str, output_path: str) -> bool:
                 font-family: 'Courier New', monospace;
                 font-size: 9pt;
                 color: #000;
+                word-wrap: break-word;
+                overflow-wrap: break-word;
+                word-break: break-all;
             }
 
             pre {
@@ -119,9 +139,11 @@ def convert_html_to_pdf(html_content: str, output_path: str) -> bool:
                 padding: 15px;
                 border: 1px solid #ccc;
                 border-left: 4px solid #000;
-                overflow-x: auto;
                 font-size: 8pt;
                 page-break-inside: avoid;
+                white-space: pre-wrap;
+                word-wrap: break-word;
+                overflow-wrap: break-word;
             }
 
             pre code {
@@ -170,6 +192,16 @@ def convert_html_to_pdf(html_content: str, output_path: str) -> bool:
 
             /* Avoid breaks inside these elements */
             .avoid-break {
+                page-break-inside: avoid;
+            }
+
+            /* Image styling */
+            img {
+                max-width: 100%;
+                height: auto;
+                display: block;
+                margin: 15px auto;
+                border: 1px solid #ccc;
                 page-break-inside: avoid;
             }
         ''', font_config=font_config)

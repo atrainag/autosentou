@@ -125,6 +125,7 @@ const mainRoutes = [
   { path: '/', meta: { title: 'Dashboard', icon: '📊' } },
   { path: '/scan/create', meta: { title: 'New Scan', icon: '🚀' } },
   { path: '/jobs', meta: { title: 'Jobs', icon: '📋' } },
+  { path: '/phase-testing', meta: { title: 'Phase Testing', icon: '🧪' } },
   { path: '/wordlists', meta: { title: 'Wordlists', icon: '📝' } },
   { path: '/knowledge-base', meta: { title: 'Knowledge Base', icon: '🧠' } },
 ]

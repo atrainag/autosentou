@@ -3,11 +3,37 @@ Detailed Findings Report Generator
 Generates a comprehensive, professional report with evidence, remediation, and technical details.
 This is the "Goldilocks" report - detailed enough for compliance/audits but automated.
 """
+import os
+import json
+import base64
 from typing import Dict, Any, List, Optional
 from models import Job, Finding
 from datetime import datetime
 from sqlalchemy import func
 from database import SessionLocal
+
+
+def _get_screenshot_base64(screenshot_path: Optional[str]) -> Optional[str]:
+    """
+    Convert screenshot image to base64 for embedding in HTML/PDF.
+
+    Args:
+        screenshot_path: Path to screenshot image file
+
+    Returns:
+        Base64-encoded image string or None if file doesn't exist
+    """
+    if not screenshot_path or not os.path.exists(screenshot_path):
+        return None
+
+    try:
+        with open(screenshot_path, 'rb') as f:
+            img_data = f.read()
+            base64_img = base64.b64encode(img_data).decode('utf-8')
+            return f"data:image/png;base64,{base64_img}"
+    except Exception as e:
+        print(f"Warning: Failed to encode screenshot {screenshot_path}: {e}")
+        return None
 
 
 def generate_detailed_findings_report(job: Job, phases_data: Dict[str, Any], db_session) -> str:
@@ -131,13 +157,65 @@ def _generate_executive_summary_section(job: Job, phases_data: Dict[str, Any], d
     lines.append(f"### Key Findings Summary\n\n")
     lines.append(f"The assessment identified **{total_findings} security findings** across various categories:\n\n")
 
-    # Summary table
+    # Table 1: Summary table
+    lines.append("**Table 1: Risk Summary**\n\n")
     lines.append("| Severity | Count | Immediate Action Required |\n")
     lines.append("|----------|-------|---------------------------|\n")
     lines.append(f"| **Critical** | {critical} | {'Yes - Immediate remediation' if critical > 0 else 'N/A'} |\n")
     lines.append(f"| **High** | {high} | {'Yes - Prompt attention needed' if high > 0 else 'N/A'} |\n")
     lines.append(f"| **Medium** | {medium} | {'Plan for next cycle' if medium > 0 else 'N/A'} |\n")
-    lines.append(f"| **Low** | {low} | {'Monitor and plan' if low > 0 else 'N/A'} |\n\n")
+    lines.append(f"| **Low** | {low} | {'Monitor and plan' if low > 0 else 'N/A'} |\n")
+    lines.append(f"| **Total** | **{total_findings}** | - |\n\n")
+
+    # Table 2: Risk Level Definitions
+    lines.append("**Table 2: Risk Level Definitions**\n\n")
+    lines.append("| Risk Level | Definition |\n")
+    lines.append("|-----------|------------|\n")
+    lines.append("| **Critical** | Directly threatens application, OS, or web server security. May lead to full system control, access to sensitive data, or malicious code execution. |\n")
+    lines.append("| **High** | Unauthorized access with significant impact. May lead to data breach, remote code execution, or authentication bypass. |\n")
+    lines.append("| **Medium** | Unauthorized access with moderate impact. May lead to information disclosure or business logic bypass. |\n")
+    lines.append("| **Low** | Unnecessary information disclosure. May provide reference information for attackers. |\n\n")
+
+    # Table 3: Vulnerability Names with counts
+    lines.append("**Table 3: Vulnerability Distribution**\n\n")
+
+    # Get findings grouped by title and severity
+    from collections import defaultdict
+    findings_list = db_session.query(Finding).filter(Finding.job_id == job.id).all()
+
+    if findings_list:
+        # Group by title
+        vuln_groups = defaultdict(lambda: {'Critical': 0, 'High': 0, 'Medium': 0, 'Low': 0, 'urls': []})
+        for finding in findings_list:
+            title = finding.title or finding.owasp_category or 'Unknown'
+            severity = finding.severity or 'Low'
+            vuln_groups[title][severity] += 1
+            if finding.url and finding.url not in vuln_groups[title]['urls']:
+                vuln_groups[title]['urls'].append(finding.url)
+
+        lines.append("| Vulnerability Name | Critical | High | Medium | Low | Location |\n")
+        lines.append("|-------------------|----------|------|--------|-----|----------|\n")
+
+        total_c = total_h = total_m = total_l = 0
+        for vuln_name, counts in vuln_groups.items():
+            c, h, m, l = counts['Critical'], counts['High'], counts['Medium'], counts['Low']
+            total_c += c
+            total_h += h
+            total_m += m
+            total_l += l
+
+            # Get first URL or target
+            location = counts['urls'][0] if counts['urls'] else job.target
+            if len(location) > 50:
+                location = location[:47] + "..."
+
+            lines.append(f"| {vuln_name[:60]} | {c} | {h} | {m} | {l} | {location} |\n")
+
+        lines.append(f"| **Total** | **{total_c}** | **{total_h}** | **{total_m}** | **{total_l}** | - |\n\n")
+    else:
+        lines.append("| Vulnerability Name | Critical | High | Medium | Low | Location |\n")
+        lines.append("|-------------------|----------|------|--------|-----|----------|\n")
+        lines.append("| No vulnerabilities detected | 0 | 0 | 0 | 0 | - |\n\n")
 
     # Risk assessment
     if critical > 0:
@@ -208,13 +286,14 @@ def _generate_scope_methodology_section(job: Job, phases_data: Dict[str, Any]) -
     lines.append("- Operating system fingerprinting\n\n")
 
     lines.append("**Phase 2: Vulnerability Analysis**\n")
-    lines.append("- CVE database lookup via NVD API\n")
-    lines.append("- Exploit database searching (ExploitDB, GitHub)\n")
-    lines.append("- AI-powered vulnerability categorization\n\n")
+    lines.append("- CVE database lookup via **NVD (National Vulnerability Database)** API maintained by NIST\n")
+    lines.append("- Exploit database searching via **ExploitDB** (Offensive Security) and **GitHub Security Advisories**\n")
+    lines.append("- Service version matching against known vulnerable versions\n")
+    lines.append("- AI-powered vulnerability categorization using OWASP TOP 10 framework\n\n")
 
     lines.append("**Phase 3: Web Application Testing**\n")
     lines.append("- Directory and file enumeration using Dirsearch\n")
-    lines.append("- Sensitive path detection\n")
+    lines.append("- Sensitive path detection (admin panels, config files, database interfaces)\n")
     lines.append("- AI-powered risk analysis of discovered paths\n\n")
 
     lines.append("**Phase 4: SQL Injection Testing**\n")
@@ -230,6 +309,22 @@ def _generate_scope_methodology_section(job: Job, phases_data: Dict[str, Any]) -
     lines.append("- Comprehensive documentation of findings\n")
     lines.append("- Evidence collection and archival\n\n")
 
+    lines.append("#### Vulnerability Information Sources\n\n")
+    lines.append("All vulnerabilities reported in this assessment are sourced from authoritative security databases:\n\n")
+    lines.append("- **NVD (National Vulnerability Database):** Official U.S. government repository of standards-based ")
+    lines.append("vulnerability management data. CVE information is retrieved via NVD API (https://nvd.nist.gov/)\n")
+    lines.append("- **ExploitDB:** Public exploit repository maintained by Offensive Security containing verified ")
+    lines.append("proof-of-concept exploits (https://www.exploit-db.com/)\n")
+    lines.append("- **GitHub Security Advisories:** Open-source vulnerability disclosures and security research ")
+    lines.append("(https://github.com/advisories)\n")
+    lines.append("- **Google Custom Search:** Targeted search for security research and vulnerability disclosures\n\n")
+
+    lines.append("**Note**: Each CVE finding in this report includes:\n")
+    lines.append("1. The detected service version from Nmap scan\n")
+    lines.append("2. The matching CVE ID from NVD database\n")
+    lines.append("3. The official CVE description from NIST\n")
+    lines.append("4. Links to authoritative sources for verification\n\n")
+
     # 2.4 Risk Rating Methodology
     lines.append("### 2.4 Risk Rating Methodology\n\n")
     lines.append("Vulnerabilities are classified using the following severity levels:\n\n")
@@ -241,11 +336,15 @@ def _generate_scope_methodology_section(job: Job, phases_data: Dict[str, Any]) -
     lines.append("| **Low** | Vulnerabilities with minimal immediate risk or require significant effort to exploit (e.g., minor information leakage) | 0.1 - 3.9 |\n\n")
 
     lines.append("Severity is determined through a combination of:\n")
-    lines.append("1. CVSS (Common Vulnerability Scoring System) scores\n")
-    lines.append("2. Exploit difficulty and availability\n")
-    lines.append("3. Potential impact on confidentiality, integrity, and availability\n")
-    lines.append("4. OWASP TOP 10 2021 classification\n")
-    lines.append("5. AI-powered risk assessment using vulnerability knowledge base\n\n")
+    lines.append("1. **CVSS (Common Vulnerability Scoring System) scores** from NVD database\n")
+    lines.append("2. **Exploit availability and difficulty** based on ExploitDB and GitHub research\n")
+    lines.append("3. **Potential impact** on confidentiality, integrity, and availability\n")
+    lines.append("4. **OWASP TOP 10 2021 classification** for web-related vulnerabilities\n")
+    lines.append("5. **AI-powered risk assessment** using our internal vulnerability knowledge base\n\n")
+
+    lines.append("**Source Attribution**: All CVE information originates from the National Vulnerability Database (NVD), ")
+    lines.append("and exploit information is sourced from ExploitDB and GitHub Security Advisories. Each finding's Evidence ")
+    lines.append("section clearly specifies its detection method and data source.\n\n")
 
     lines.append("---\n\n")
     return ''.join(lines)
@@ -360,6 +459,26 @@ def _format_finding_detail(finding: Finding, section_num: str) -> str:
         lines.append("**Remediation:**\n\n")
         lines.append(f"{finding.remediation}\n\n")
 
+    # Screenshot (from evidence JSON for web_analysis findings)
+    screenshot_path = None
+    if finding.evidence:
+        # Parse evidence JSON if it's a string
+        evidence_data = finding.evidence
+        if isinstance(evidence_data, str):
+            try:
+                evidence_data = json.loads(evidence_data)
+            except json.JSONDecodeError:
+                evidence_data = {}
+
+        if isinstance(evidence_data, dict):
+            screenshot_path = evidence_data.get('screenshot_path')
+
+    if screenshot_path:
+        screenshot_base64 = _get_screenshot_base64(screenshot_path)
+        if screenshot_base64:
+            lines.append("**Page Screenshot:**\n\n")
+            lines.append(f'<img src="{screenshot_base64}" alt="Page Screenshot" style="max-width: 100%; border: 1px solid #ccc; margin: 10px 0;" />\n\n')
+
     # References (stored in evidence JSON for CVEs, or generate from CVE ID)
     references = []
 
@@ -404,34 +523,38 @@ def _generate_technical_results_section(phases_data: Dict[str, Any]) -> str:
     info_data = phases_data.get('information_gathering', {})
     if info_data:
         nmap_data = info_data.get('nmap', {})
-        open_ports = nmap_data.get('open_ports', [])
+        # ✅ FIXED: Use 'parsed_ports' instead of 'open_ports'
+        parsed_ports = nmap_data.get('parsed_ports', [])
+        # Filter to only open ports
+        open_ports = [p for p in parsed_ports if p.get('state') == 'open']
 
         if open_ports:
             lines.append(f"**Open Ports Discovered: {len(open_ports)}**\n\n")
             lines.append("| Port | Protocol | Service | Version | State |\n")
             lines.append("|------|----------|---------|---------|-------|\n")
 
-            for port in open_ports[:20]:  # Limit to first 20
+            # Show ALL ports (no limit)
+            for port in open_ports:
                 port_num = port.get('port', 'N/A')
-                protocol = port.get('protocol', 'tcp')
+                # ✅ FIXED: Use 'proto' instead of 'protocol'
+                protocol = port.get('proto', 'tcp')
                 service = port.get('service', 'unknown')
-                version = port.get('version', 'N/A')
+                version = port.get('version', '') or 'N/A'
                 state = port.get('state', 'open')
                 lines.append(f"| {port_num} | {protocol} | {service} | {version} | {state} |\n")
 
-            if len(open_ports) > 20:
-                lines.append(f"\n*... and {len(open_ports) - 20} more ports. See raw outputs for complete list.*\n")
             lines.append("\n")
         else:
             lines.append("No open ports discovered or scan not completed.\n\n")
 
-        # OS Detection
-        os_matches = nmap_data.get('os_matches', [])
+        # OS Detection - look in os_detection sub-object
+        os_detection = nmap_data.get('os_detection', {})
+        os_matches = os_detection.get('os_matches', [])
         if os_matches:
             lines.append("**Operating System Detection:**\n\n")
-            for os in os_matches[:3]:
-                name = os.get('name', 'Unknown')
-                accuracy = os.get('accuracy', 0)
+            for os_match in os_matches[:3]:
+                name = os_match.get('name', 'Unknown')
+                accuracy = os_match.get('accuracy', 0)
                 lines.append(f"- {name} (Accuracy: {accuracy}%)\n")
             lines.append("\n")
     else:

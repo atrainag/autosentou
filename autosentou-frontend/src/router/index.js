@@ -9,6 +9,7 @@ const ReportViewer = () => import('../views/ReportViewer.vue')
 const ReportDashboard = () => import('../views/ReportDashboard.vue')
 const WordlistManager = () => import('../views/WordlistManager.vue')
 const KnowledgeBaseManager = () => import('../views/KnowledgeBaseManager.vue')
+const PhaseTesting = () => import('../views/PhaseTesting.vue')
 
 const routes = [
   {
@@ -81,6 +82,15 @@ const routes = [
     meta: {
       title: 'Knowledge Base',
       icon: '🧠',
+    },
+  },
+  {
+    path: '/phase-testing',
+    name: 'PhaseTesting',
+    component: PhaseTesting,
+    meta: {
+      title: 'Phase Testing',
+      icon: '🧪',
     },
   },
   {

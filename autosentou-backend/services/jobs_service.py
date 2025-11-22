@@ -3,29 +3,327 @@ import threading
 import uuid
 import time
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 
-from  database import SessionLocal
-from  models import Job, Phase, Report
-from  services.utils.helpers import (
+from database import SessionLocal
+from models import Job, Phase, Report
+from services.utils.helpers import (
     job_to_dict,
     phase_to_dict,
     report_to_dict,
 )
-from  services.phases.info_gathering import run_info_gathering_phase
-from  services.phases.vulnerability_analysis import run_vulnerability_analysis_phase_enhanced
-from  services.phases.web_enumeration import run_web_enumeration_phase
-from  services.phases.sqli_testing import run_sqli_testing_phase
-from  services.phases.authentication_testing import run_authentication_testing_phase
-from  services.phases.report_generation import run_report_generation_phase
-from  services.phases.report_generation.vulnerability_utils import get_vulnerability_summary
+from services.phases.info_gathering import run_info_gathering_phase
+from services.phases.vulnerability_analysis import run_vulnerability_analysis_phase_enhanced
+from services.phases.web_enumeration import run_web_enumeration_phase
+from services.phases.web_analysis import WebAnalysisPhase
+from services.phases.sqli_testing import run_sqli_testing_phase
+from services.phases.authentication_testing import run_authentication_testing_phase
+from services.phases.report_generation import run_report_generation_phase
+from services.phases.report_generation.vulnerability_utils import get_vulnerability_summary
+from services.ai.rate_limit_handler import RateLimitError
 
 logger = logging.getLogger(__name__)
 
 
+def _check_cancellation(db, job: Job) -> bool:
+    """
+    Check if cancellation was requested for this job.
+
+    Returns:
+        True if cancellation was requested, False otherwise
+    """
+    db.refresh(job)  # Refresh to get latest state
+    if job.cancellation_requested:
+        logger.warning(f"[Job {job.id}] Cancellation detected - stopping scan gracefully")
+        job.status = "cancelled"
+        job.phase_desc = "Scan cancelled by user"
+        job.updated_at = datetime.now()
+        db.commit()
+        return True
+    return False
+
+
+def _suspend_job_for_rate_limit(db, job: Job, error: RateLimitError, current_phase: str) -> None:
+    """
+    Suspend a job due to AI rate limiting.
+
+    Args:
+        db: Database session
+        job: Job to suspend
+        error: RateLimitError with retry information
+        current_phase: Name of the phase where rate limit occurred
+    """
+    logger.warning(f"[Job {job.id}] Suspending job due to rate limit in {current_phase}")
+
+    # Calculate resume time
+    resume_after = datetime.now() + timedelta(seconds=error.retry_after)
+
+    job.status = "suspended"
+    job.suspension_reason = f"AI rate limit in {current_phase} ({error.provider})"
+    job.last_completed_phase = current_phase
+    job.suspended_at = datetime.now()
+    job.resume_after = resume_after
+    job.phase_desc = f"Suspended - Rate limit exceeded. Resume after {resume_after.strftime('%H:%M:%S')}"
+    job.updated_at = datetime.now()
+
+    db.commit()
+
+    logger.info(f"[Job {job.id}] Job suspended until {resume_after.strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"[Job {job.id}] Last completed phase: {current_phase}")
+
+
+def resume_suspended_job(job_id: str) -> Dict[str, Any]:
+    """
+    Resume a suspended job from where it left off.
+
+    Args:
+        job_id: ID of the job to resume
+
+    Returns:
+        Dict with status information
+    """
+    db = SessionLocal()
+    try:
+        job = db.query(Job).filter(Job.id == job_id).first()
+
+        if not job:
+            return {"success": False, "error": "Job not found"}
+
+        if job.status != "suspended":
+            return {"success": False, "error": f"Job is not suspended (status: {job.status})"}
+
+        # Check if we should wait longer
+        if job.resume_after and datetime.now() < job.resume_after:
+            wait_seconds = (job.resume_after - datetime.now()).total_seconds()
+            return {
+                "success": False,
+                "error": f"Job cannot be resumed yet. Wait {int(wait_seconds)} more seconds.",
+                "resume_after": job.resume_after.isoformat()
+            }
+
+        # Update job status
+        job.status = "running"
+        job.retry_count = (job.retry_count or 0) + 1
+        job.phase_desc = f"Resuming from {job.last_completed_phase}..."
+        job.updated_at = datetime.now()
+        db.commit()
+
+        last_phase = job.last_completed_phase
+        target = job.target
+
+        logger.info(f"[Job {job_id}] Resuming job from phase: {last_phase}")
+
+        # Start background thread to continue scan
+        thread = threading.Thread(
+            target=_resume_scan_thread,
+            args=(job_id, target, last_phase),
+            daemon=True
+        )
+        thread.start()
+
+        return {
+            "success": True,
+            "message": f"Job resuming from {last_phase}",
+            "job_id": job_id,
+            "retry_count": job.retry_count
+        }
+
+    except Exception as e:
+        logger.error(f"[Job {job_id}] Error resuming job: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+    finally:
+        db.close()
+
+
+def _resume_scan_thread(job_id: str, target: str, last_completed_phase: str):
+    """
+    Resume a scan from a specific phase.
+
+    Args:
+        job_id: Job ID
+        target: Target being scanned
+        last_completed_phase: The last phase that completed successfully
+    """
+    logger.info(f"[Job {job_id}] Resume thread started - continuing from {last_completed_phase}")
+
+    db = SessionLocal()
+    try:
+        job = db.query(Job).filter(Job.id == job_id).first()
+        if not job:
+            logger.error(f"[Job {job_id}] Job not found for resume")
+            return
+
+        # Get existing phase data
+        phases_data = {}
+        for phase in job.phases:
+            if phase.status == "success" and phase.data:
+                phase_key = phase.phase_name.lower().replace(" ", "_")
+                phases_data[phase_key] = phase.data
+
+        # Determine which phases to run based on last completed
+        phase_order = [
+            "Information Gathering",
+            "Web Enumeration",
+            "Web Analysis",
+            "Vulnerability Analysis",
+            "SQL Injection Testing",
+            "Authentication Testing",
+            "Report Generation"
+        ]
+
+        try:
+            start_index = phase_order.index(last_completed_phase) + 1
+        except ValueError:
+            start_index = 0
+
+        if start_index >= len(phase_order):
+            # All phases completed
+            job.status = "completed"
+            job.phase = "All phases complete"
+            job.phase_desc = "All done. Report ready."
+            job.report_generated = True
+            job.updated_at = datetime.now()
+            db.commit()
+            logger.info(f"[Job {job_id}] All phases already completed")
+            return
+
+        logger.info(f"[Job {job_id}] Resuming from phase index {start_index}: {phase_order[start_index]}")
+
+        # Get info gathering data (needed for most phases)
+        info_gathering_data = phases_data.get('information_gathering', {})
+
+        # Continue with remaining phases
+        try:
+            # Run remaining phases using the existing _run_real_phases logic
+            # but starting from the appropriate phase
+            remaining_phases_data = _run_remaining_phases(
+                db, job, info_gathering_data, phases_data, phase_order[start_index:]
+            )
+
+            # Merge with existing data
+            phases_data.update(remaining_phases_data)
+
+            # Finalize job
+            job.status = "completed"
+            job.phase = "All phases complete"
+            job.phase_desc = "All done. Report ready."
+            job.report_generated = True
+            job.suspension_reason = None
+            job.updated_at = datetime.now()
+            db.commit()
+
+            logger.info(f"[Job {job_id}] Resumed scan completed successfully")
+
+        except RateLimitError as e:
+            # Another rate limit hit during resume
+            current_phase = job.phase or "Unknown"
+            _suspend_job_for_rate_limit(db, job, e, current_phase)
+            logger.warning(f"[Job {job_id}] Rate limit hit again during resume - job re-suspended")
+
+    except Exception as e:
+        logger.error(f"[Job {job_id}] Error in resume thread: {e}", exc_info=True)
+        try:
+            job = db.query(Job).filter(Job.id == job_id).first()
+            if job:
+                job.status = "failed"
+                job.error_message = f"Resume failed: {str(e)}"
+                job.updated_at = datetime.now()
+                db.commit()
+        except Exception as inner_e:
+            logger.error(f"[Job {job_id}] Failed to update job status: {inner_e}")
+    finally:
+        db.close()
+
+
+def _run_remaining_phases(db, job: Job, info_gathering_data: Dict[str, Any],
+                          existing_data: Dict[str, Any], phases_to_run: List[str]) -> Dict[str, Any]:
+    """
+    Run remaining phases after a resume.
+
+    Args:
+        db: Database session
+        job: Current job
+        info_gathering_data: Data from info gathering phase
+        existing_data: Already collected phase data
+        phases_to_run: List of phase names to execute
+
+    Returns:
+        Dict with collected phase data
+    """
+    phases_data = existing_data.copy()
+
+    for phase_name in phases_to_run:
+        # Check for cancellation before each phase
+        if _check_cancellation(db, job):
+            logger.info(f"[Job {job.id}] Scan cancelled during resume")
+            return phases_data
+
+        if phase_name == "Web Enumeration":
+            job.phase = "Web Enumeration"
+            job.phase_desc = "Resuming web enumeration..."
+            db.commit()
+
+            custom_wordlist = job.custom_wordlist if hasattr(job, 'custom_wordlist') else None
+            web_enum_phase = run_web_enumeration_phase(db, job, info_gathering_data, custom_wordlist)
+            if web_enum_phase:
+                phases_data['web_enumeration'] = web_enum_phase.data
+
+        elif phase_name == "Web Analysis":
+            job.phase = "Web Analysis"
+            job.phase_desc = "Resuming web analysis..."
+            db.commit()
+
+            if phases_data.get('web_enumeration'):
+                web_analysis_executor = WebAnalysisPhase(db, job)
+                web_analysis_phase = web_analysis_executor.execute(phases_data['web_enumeration'], max_pages=None)
+                if web_analysis_phase:
+                    phases_data['web_analysis'] = web_analysis_phase.data
+
+        elif phase_name == "Vulnerability Analysis":
+            job.phase = "Vulnerability Analysis"
+            job.phase_desc = "Resuming vulnerability analysis..."
+            db.commit()
+
+            vuln_phase = run_vulnerability_analysis_phase_enhanced(
+                db, job, info_gathering_data,
+                web_enumeration_data=phases_data.get('web_enumeration')
+            )
+            if vuln_phase:
+                phases_data['vulnerability_analysis'] = vuln_phase.data
+
+        elif phase_name == "SQL Injection Testing":
+            job.phase = "SQL Injection Testing"
+            job.phase_desc = "Resuming SQL injection testing..."
+            db.commit()
+
+            sqli_phase = run_sqli_testing_phase(db, job, phases_data.get('web_enumeration', {}))
+            if sqli_phase:
+                phases_data['sqli_testing'] = sqli_phase.data
+
+        elif phase_name == "Authentication Testing":
+            job.phase = "Authentication Testing"
+            job.phase_desc = "Resuming authentication testing..."
+            db.commit()
+
+            auth_phase = run_authentication_testing_phase(db, job, phases_data.get('web_enumeration', {}))
+            if auth_phase:
+                phases_data['authentication_testing'] = auth_phase.data
+
+        elif phase_name == "Report Generation":
+            job.phase = "Report Generation"
+            job.phase_desc = "Generating report..."
+            db.commit()
+
+            report_phase = run_report_generation_phase(db, job, phases_data)
+            if report_phase:
+                phases_data['report_generation'] = report_phase.data
+
+    return phases_data
+
+
 def _run_real_phases(db, job: Job, info_gathering_data: Dict[str, Any]):
-    """Run all real pentesting phases in sequence."""
+    """Run all real pentesting phases in sequence with cancellation support."""
     logger.info(f"[Job {job.id}] Starting pentesting phases execution")
     phases_data = {
         'information_gathering': info_gathering_data
@@ -33,6 +331,12 @@ def _run_real_phases(db, job: Job, info_gathering_data: Dict[str, Any]):
 
     # Phase 2: Web Enumeration V2 (with PathAnalyzer, AuthAnalyzer, RAG)
     logger.info(f"[Job {job.id}] ===== PHASE 2: Web Enumeration V2 =====")
+
+    # CHECK FOR CANCELLATION
+    if _check_cancellation(db, job):
+        logger.info(f"[Job {job.id}] Scan cancelled before Phase 2")
+        return phases_data
+
     job.phase = "Web Enumeration"
     job.phase_desc = "Enumerating web directories with intelligent analysis (PathAnalyzer + RAG)..."
     job.updated_at = datetime.now()
@@ -51,8 +355,39 @@ def _run_real_phases(db, job: Job, info_gathering_data: Dict[str, Any]):
     else:
         logger.warning(f"[Job {job.id}] Web enumeration returned no data")
 
-    # Phase 3: Enhanced Vulnerability Analysis (with web integration)
-    logger.info(f"[Job {job.id}] ===== PHASE 3: Enhanced Vulnerability Analysis =====")
+    # Phase 3: Web Analysis (Playwright + LLM - Deep Content Analysis)
+    logger.info(f"[Job {job.id}] ===== PHASE 3: Web Analysis (Playwright + LLM) =====")
+
+    # CHECK FOR CANCELLATION
+    if _check_cancellation(db, job):
+        logger.info(f"[Job {job.id}] Scan cancelled before Phase 3")
+        return phases_data
+
+    job.phase = "Web Analysis"
+    job.phase_desc = "Analyzing discovered paths with Playwright + LLM for intelligent vulnerability detection..."
+    job.updated_at = datetime.now()
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    if phases_data.get('web_enumeration'):
+        logger.info(f"[Job {job.id}] Running web analysis phase...")
+        web_analysis_executor = WebAnalysisPhase(db, job)
+        web_analysis_phase = web_analysis_executor.execute(
+            phases_data['web_enumeration'],
+            max_pages=None  # ✅ CHANGED: Analyze ALL pages (unlimited mode)
+        )
+        if web_analysis_phase:
+            phases_data['web_analysis'] = web_analysis_phase.data
+            logger.info(f"[Job {job.id}] Web analysis completed - Status: {web_analysis_phase.status}")
+            logger.info(f"[Job {job.id}] Web analysis findings: {len(web_analysis_phase.data.get('findings', []))}")
+        else:
+            logger.warning(f"[Job {job.id}] Web analysis returned no data")
+    else:
+        logger.info(f"[Job {job.id}] Skipping web analysis - no web enumeration data available")
+
+    # Phase 4: Enhanced Vulnerability Analysis (with web integration)
+    logger.info(f"[Job {job.id}] ===== PHASE 4: Enhanced Vulnerability Analysis =====")
     job.phase = "Vulnerability Analysis"
     job.phase_desc = "Analyzing vulnerabilities with service + web correlation..."
     job.updated_at = datetime.now()
@@ -73,8 +408,8 @@ def _run_real_phases(db, job: Job, info_gathering_data: Dict[str, Any]):
     else:
         logger.warning(f"[Job {job.id}] Vulnerability analysis returned no data")
 
-    # Phase 4: SQL Injection Testing
-    logger.info(f"[Job {job.id}] ===== PHASE 4: SQL Injection Testing =====")
+    # Phase 5: SQL Injection Testing
+    logger.info(f"[Job {job.id}] ===== PHASE 5: SQL Injection Testing =====")
     job.phase = "SQL Injection Testing"
     job.phase_desc = "Testing endpoints for SQL injection vulnerabilities..."
     job.updated_at = datetime.now()
@@ -90,8 +425,8 @@ def _run_real_phases(db, job: Job, info_gathering_data: Dict[str, Any]):
     else:
         logger.warning(f"[Job {job.id}] SQL injection testing returned no data")
 
-    # Phase 5: Authentication Testing
-    logger.info(f"[Job {job.id}] ===== PHASE 5: Authentication Testing =====")
+    # Phase 6: Authentication Testing
+    logger.info(f"[Job {job.id}] ===== PHASE 6: Authentication Testing =====")
     job.phase = "Authentication Testing"
     job.phase_desc = "Testing login pages for username enumeration vulnerabilities..."
     job.updated_at = datetime.now()
@@ -107,10 +442,10 @@ def _run_real_phases(db, job: Job, info_gathering_data: Dict[str, Any]):
     else:
         logger.warning(f"[Job {job.id}] Authentication testing returned no data")
 
-    # Phase 6: Report Generation
-    logger.info(f"[Job {job.id}] ===== PHASE 6: Report Generation =====")
+    # Phase 7: Report Generation
+    logger.info(f"[Job {job.id}] ===== PHASE 7: Report Generation =====")
     job.phase = "Report Generation"
-    job.phase_desc = "Generating comprehensive markdown and PDF reports..."
+    job.phase_desc = "Generating comprehensive pentesting report..."
     job.updated_at = datetime.now()
     db.add(job)
     db.commit()
@@ -178,7 +513,13 @@ def _background_scan_thread(job_id: str, target: str):
 
         # Get the PDF path from report data and make it relative to reports directory
         # Use detailed_findings_pdf which is the actual key set by report_generator
-        pdf_full_path = report_data.get('detailed_findings_pdf', f"reports/{job_id}/pentest_report_detailed.pdf")
+        pdf_full_path = report_data.get('detailed_findings_pdf')
+
+        # If pdf_full_path is None, use fallback path
+        if not pdf_full_path:
+            pdf_full_path = f"reports/{job_id}/pentest_report_detailed.pdf"
+            logger.warning(f"[Job {job_id}] No PDF path in report data, using fallback: {pdf_full_path}")
+
         # Remove 'reports/' prefix if present to store relative path
         if pdf_full_path.startswith('reports/'):
             pdf_relative_path = pdf_full_path[8:]  # Remove 'reports/' prefix
@@ -202,6 +543,18 @@ def _background_scan_thread(job_id: str, target: str):
         logger.info("="*100)
         logger.info(f"[Job {job_id}] SCAN COMPLETED SUCCESSFULLY")
         logger.info("="*100)
+
+    except RateLimitError as e:
+        # Handle rate limit by suspending the job
+        logger.warning(f"[Job {job_id}] Rate limit error: {str(e)}")
+        try:
+            job = db.query(Job).filter(Job.id == job_id).first()
+            if job:
+                current_phase = job.phase or "Unknown"
+                _suspend_job_for_rate_limit(db, job, e, current_phase)
+                logger.info(f"[Job {job_id}] Job suspended due to rate limit")
+        except Exception as inner_e:
+            logger.error(f"[Job {job_id}] Failed to suspend job: {str(inner_e)}", exc_info=True)
 
     except Exception as e:
         logger.error(f"[Job {job_id}] CRITICAL ERROR in background scan thread: {str(e)}", exc_info=True)

@@ -18,6 +18,7 @@ from .executive_summary import generate_executive_summary_section
 from .vulnerability_report import generate_vulnerability_sections
 from .network_services_report import generate_network_services_section
 from .web_report import generate_web_enumeration_section
+from .web_analysis_report import generate_web_analysis_section, generate_web_analysis_summary_table
 from .sqli_report import generate_sqli_section
 from .auth_report import generate_auth_section
 from .recommendations import generate_recommendations_section, generate_conclusion_section
@@ -113,9 +114,18 @@ class ReportGenerator:
                 subsections.append("Sensitive Information Exposure")
 
             self.sections.append(ReportSection(
-                "Web Application Testing",
+                "Phase 2: Web Enumeration",
                 web_section,
                 subsections
+            ))
+
+        # 5.5. Phase 3: Web Analysis - MAIN FINDINGS SECTION (NEW)
+        web_analysis_section = generate_web_analysis_section(self.phases_data)
+        if web_analysis_section:
+            self.sections.append(ReportSection(
+                "Phase 3: Web Analysis (OWASP Findings)",
+                web_analysis_section,
+                ["Overview", "Detailed Findings by OWASP Category"]
             ))
 
         # 6. SQL Injection Testing (if data available)
@@ -402,6 +412,11 @@ def run_report_generation_phase(db_session, job: Job, all_phases_data: Dict[str,
 
         # 0. Populate findings table (NEW!)
         print("→ Extracting and categorizing findings...")
+        print(f"[DEBUG] Phases data keys: {list(all_phases_data.keys())}")
+        print(f"[DEBUG] Web analysis in phases_data: {'web_analysis' in all_phases_data}")
+        if 'web_analysis' in all_phases_data:
+            print(f"[DEBUG] Web analysis findings in phases_data: {len(all_phases_data['web_analysis'].get('findings', []))}")
+
         from services.findings_populator import populate_findings_for_job
         from models import Finding, FindingsSummaryResponse
         from sqlalchemy import func
@@ -426,11 +441,14 @@ def run_report_generation_phase(db_session, job: Job, all_phases_data: Dict[str,
 
         # Get summary statistics for the report
         total_findings = db_session.query(func.count(Finding.id)).filter(Finding.job_id == job.id).scalar() or 0
+        print(f"[DEBUG] Total findings in database for job {job.id}: {total_findings}")
+
         severity_counts = db_session.query(
             Finding.severity,
             func.count(Finding.id)
         ).filter(Finding.job_id == job.id).group_by(Finding.severity).all()
         by_severity = {severity: count for severity, count in severity_counts}
+        print(f"[DEBUG] Findings by severity: {by_severity}")
 
         owasp_counts = db_session.query(
             Finding.owasp_category,
@@ -443,6 +461,7 @@ def run_report_generation_phase(db_session, job: Job, all_phases_data: Dict[str,
             func.count(Finding.id)
         ).filter(Finding.job_id == job.id).group_by(Finding.finding_type).all()
         by_finding_type = {ftype: count for ftype, count in type_counts}
+        print(f"[DEBUG] Findings by type: {by_finding_type}")
 
         summary_data = {
             'total_findings': total_findings,

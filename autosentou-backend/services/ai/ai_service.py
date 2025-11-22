@@ -1,12 +1,17 @@
 import os
+import time
+import logging
 from typing import List, Dict, Any, Optional
 from abc import ABC, abstractmethod
 import google.generativeai as genai
 from openai import OpenAI
 import requests
 from services.ai.config import AIConfig, AIProvider
+from services.ai.rate_limit_handler import RateLimitHandler, RateLimitError, get_rate_limit_handler
 import threading
 import json
+
+logger = logging.getLogger(__name__)
 
 
 class BaseAIProvider(ABC):
@@ -25,10 +30,9 @@ class BaseAIProvider(ABC):
 
 class GeminiProvider(BaseAIProvider):
     """Google Gemini AI provider."""
-    
+
     def __init__(self, api_key: str, temperature: float = 0.7, max_tokens: int = 2000):
         genai.configure(api_key=api_key)
-        # Use the correct model name - gemini-1.5-flash or gemini-1.5-pro
         try:
             self.model = genai.GenerativeModel('gemini-2.5-flash')
         except:
@@ -38,61 +42,96 @@ class GeminiProvider(BaseAIProvider):
             except:
                 # Last resort - try gemini-1.5-pro
                 self.model = genai.GenerativeModel('gemini-1.5-pro')
-        
+
         self.temperature = temperature
         self.max_tokens = max_tokens
-    
-    def generate(self, prompt: str, **kwargs) -> str:
-        try:
-            response = self.model.generate_content(
-                prompt,
-                generation_config=genai.types.GenerationConfig(
-                    temperature=kwargs.get('temperature', self.temperature),
-                )
-            )
+        self.rate_limit_handler = RateLimitHandler('gemini')
 
-            # Handle blocked responses
-            if response.prompt_feedback.block_reason:
-                print(f"Gemini blocked response: {response.prompt_feedback.block_reason}")
+    def generate(self, prompt: str, **kwargs) -> str:
+        max_retries = kwargs.get('max_retries', 3)
+
+        for attempt in range(max_retries):
+            try:
+                # Wait if needed to respect rate limits
+                self.rate_limit_handler.wait_if_needed()
+
+                response = self.model.generate_content(
+                    prompt,
+                    generation_config=genai.types.GenerationConfig(
+                        temperature=kwargs.get('temperature', self.temperature),
+                    )
+                )
+
+                # Record successful request
+                self.rate_limit_handler.record_request()
+                self.rate_limit_handler.record_success()
+
+                # Handle blocked responses
+                if response.prompt_feedback.block_reason:
+                    logger.warning(f"Gemini blocked response: {response.prompt_feedback.block_reason}")
+                    return json.dumps({
+                        "error": "Content blocked by safety filters",
+                        "fallback": True,
+                        "reason": str(response.prompt_feedback.block_reason)
+                    })
+
+                # Handle multi-part responses
+                if not response.parts:
+                    logger.warning(f"Gemini returned empty response")
+                    return json.dumps({
+                        "error": "Empty response from AI",
+                        "fallback": True
+                    })
+
+                # Extract text from all parts
+                text_parts = []
+                for part in response.parts:
+                    if hasattr(part, 'text'):
+                        text_parts.append(part.text)
+
+                if not text_parts:
+                    logger.warning(f"No text parts in response")
+                    return json.dumps({
+                        "error": "No text in AI response",
+                        "fallback": True
+                    })
+
+                return ''.join(text_parts)
+
+            except Exception as e:
+                error_info = self.rate_limit_handler.handle_error(e, attempt)
+
+                if error_info['is_rate_limit']:
+                    logger.warning(f"Gemini rate limit: {error_info['message']}")
+
+                    if error_info['should_suspend']:
+                        # Raise special exception for job suspension
+                        raise RateLimitError(
+                            f"Rate limit exceeded, suspend until {error_info['resume_at']}",
+                            retry_after=error_info['wait_seconds'],
+                            provider='gemini'
+                        )
+
+                    if error_info['should_retry']:
+                        logger.info(f"Retrying in {error_info['wait_seconds']:.1f}s (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(error_info['wait_seconds'])
+                        continue
+
+                # Non-rate-limit error or max retries exceeded
+                logger.error(f"Gemini generation error: {e}")
                 return json.dumps({
-                    "error": "Content blocked by safety filters",
+                    "error": "AI generation failed",
                     "fallback": True,
-                    "reason": str(response.prompt_feedback.block_reason)
+                    "message": str(e),
+                    "is_rate_limit": error_info.get('is_rate_limit', False)
                 })
-            
-            # Handle multi-part responses
-            if not response.parts:
-                print(f"Gemini returned empty response")
-                return json.dumps({
-                    "error": "Empty response from AI",
-                    "fallback": True
-                })
-            
-            # Extract text from all parts
-            text_parts = []
-            for part in response.parts:
-                if hasattr(part, 'text'):
-                    text_parts.append(part.text)
-            
-            if not text_parts:
-                print(f"No text parts in response")
-                return json.dumps({
-                    "error": "No text in AI response",
-                    "fallback": True
-                })
-            
-            return ''.join(text_parts)
-            
-        except Exception as e:
-            print(f"Gemini generation error: {e}")
-            import traceback
-            print(traceback.format_exc())
-            # Return fallback response
-            return json.dumps({
-                "error": "AI generation failed",
-                "fallback": True,
-                "message": str(e)
-            })
+
+        # Exhausted all retries
+        return json.dumps({
+            "error": "AI generation failed after max retries",
+            "fallback": True,
+            "is_rate_limit": True
+        })
     
     def generate_with_context(self, prompt: str, context: str, **kwargs) -> str:
         full_prompt = f"Context:\n{context}\n\nTask:\n{prompt}"

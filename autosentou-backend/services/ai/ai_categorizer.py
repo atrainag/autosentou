@@ -4,8 +4,9 @@ Uses LLMs (Gemini, OpenAI, DeepSeek, Ollama) to intelligently categorize vulnera
 """
 import logging
 import json
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from services.ai.ai_service import get_ai_service
+from services.ai.prompts import get_single_categorization_prompt, get_batch_categorization_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -61,48 +62,39 @@ class AICategorizer:
             return None
 
     def _build_categorization_prompt(self, finding: Dict[str, Any]) -> str:
-        """Build a detailed prompt for AI categorization."""
-        return f"""You are a cybersecurity expert specializing in vulnerability assessment and OWASP Top 10.
+        """Build a detailed prompt for AI categorization using centralized prompts."""
+        return get_single_categorization_prompt(finding)
 
-Analyze the following vulnerability finding and provide a detailed categorization.
+    def categorize_batch(self, findings: List[Dict[str, Any]]) -> List[Optional[Dict[str, Any]]]:
+        """
+        Batch categorize multiple findings in a single AI call.
 
-**Finding Information:**
-- Title: {finding.get('title', 'N/A')}
-- Description: {finding.get('description', 'N/A')}
-- Type: {finding.get('finding_type', 'N/A')}
-- URL: {finding.get('url', 'N/A')}
-- Service: {finding.get('service', 'N/A')}
-- Port: {finding.get('port', 'N/A')}
-- CVE ID: {finding.get('cve_id', 'N/A')}
-- Evidence: {json.dumps(finding.get('evidence', {}), indent=2)}
+        Args:
+            findings: List of finding dictionaries
 
-**Task:**
-Categorize this vulnerability using the OWASP Top 10 2021 framework.
+        Returns:
+            List of categorization results (same order as input)
+        """
+        try:
+            prompt = get_batch_categorization_prompt(findings)
+            response = self.ai_service.generate(prompt)
 
-**OWASP Top 10 2021 Categories:**
-A01:2021 - Broken Access Control
-A02:2021 - Cryptographic Failures
-A03:2021 - Injection
-A04:2021 - Insecure Design
-A05:2021 - Security Misconfiguration
-A06:2021 - Vulnerable and Outdated Components
-A07:2021 - Identification and Authentication Failures
-A08:2021 - Software and Data Integrity Failures
-A09:2021 - Security Logging and Monitoring Failures
-A10:2021 - Server-Side Request Forgery (SSRF)
+            if not response:
+                return [None] * len(findings)
 
-**Respond ONLY with valid JSON in this exact format:**
-{{
-  "severity": "Critical|High|Medium|Low",
-  "owasp_category": "A0X:2021 - Full Category Name",
-  "cwe_id": "CWE-XXX",
-  "category": "Brief descriptive category name",
-  "remediation": "Detailed remediation steps (2-3 sentences)",
-  "cvss_estimate": 0.0,
-  "reasoning": "Brief explanation of why this categorization (1-2 sentences)"
-}}
+            # Parse batch response
+            results = self._parse_batch_ai_response(response, len(findings))
 
-Provide your response as valid JSON only, no other text."""
+            if results and len(results) == len(findings):
+                logger.info(f"✓ AI batch categorized {len(findings)} findings")
+                return results
+            else:
+                logger.warning(f"⚠ Batch response mismatch: expected {len(findings)}, got {len(results) if results else 0}")
+                return [None] * len(findings)
+
+        except Exception as e:
+            logger.error(f"✗ AI batch categorization error: {e}", exc_info=True)
+            return [None] * len(findings)
 
     def _parse_ai_response(self, response: str) -> Optional[Dict[str, Any]]:
         """Parse JSON response from AI model."""
@@ -140,6 +132,51 @@ Provide your response as valid JSON only, no other text."""
             logger.error(f"✗ Error parsing AI response: {e}")
             return None
 
+    def _parse_batch_ai_response(self, response: str, expected_count: int) -> List[Optional[Dict[str, Any]]]:
+        """Parse batch JSON response from AI model."""
+        try:
+            # Clean up response
+            response = response.strip()
+            if response.startswith("```json"):
+                response = response[7:]
+            if response.startswith("```"):
+                response = response[3:]
+            if response.endswith("```"):
+                response = response[:-3]
+            response = response.strip()
+
+            # Parse JSON array
+            results = json.loads(response)
+
+            if not isinstance(results, list):
+                logger.error("Batch response is not a JSON array")
+                return [None] * expected_count
+
+            # Validate and clean each result
+            cleaned_results = []
+            for result in results:
+                # Validate required fields
+                required_fields = ['severity', 'owasp_category', 'category', 'remediation']
+                valid = all(field in result for field in required_fields)
+
+                if valid:
+                    # Ensure severity is capitalized
+                    result['severity'] = result['severity'].capitalize()
+                    cleaned_results.append(result)
+                else:
+                    logger.warning(f"Missing required fields in batch result: {result}")
+                    cleaned_results.append(None)
+
+            return cleaned_results
+
+        except json.JSONDecodeError as e:
+            logger.error(f"✗ Failed to parse batch AI JSON response: {e}")
+            logger.debug(f"Response was: {response[:500]}")
+            return [None] * expected_count
+        except Exception as e:
+            logger.error(f"✗ Error parsing batch AI response: {e}")
+            return [None] * expected_count
+
 
 # Global instance
 _ai_categorizer_instance = None
@@ -165,3 +202,17 @@ def ai_categorize_finding(finding: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
     categorizer = get_ai_categorizer()
     return categorizer.categorize(finding)
+
+
+def ai_categorize_findings_batch(findings: List[Dict[str, Any]]) -> List[Optional[Dict[str, Any]]]:
+    """
+    Convenience function to batch categorize multiple findings using AI.
+
+    Args:
+        findings: List of finding dictionaries
+
+    Returns:
+        List of categorization results (same order as input)
+    """
+    categorizer = get_ai_categorizer()
+    return categorizer.categorize_batch(findings)

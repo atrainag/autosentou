@@ -30,6 +30,21 @@ def start_scan_endpoint(request: StartScanRequest, db: Session = Depends(get_db)
     logger.info(f"Description: {request.description}")
     logger.info(f"Custom wordlist: {request.custom_wordlist or 'None (using default)'}")
 
+    # Validate server connectivity before starting scan
+    logger.info("Performing pre-scan connectivity check...")
+    from services.utils.connectivity_check import is_server_responsive
+
+    is_responsive, connectivity_message = is_server_responsive(request.target)
+
+    if not is_responsive:
+        logger.error(f"Connectivity check failed for {request.target}: {connectivity_message}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Target server is not responding: {connectivity_message}"
+        )
+
+    logger.info(f"Connectivity check passed: {connectivity_message}")
+
     # Validate wordlist if provided
     if request.custom_wordlist:
         logger.info(f"Validating custom wordlist: {request.custom_wordlist}")
@@ -375,6 +390,115 @@ def get_all_jobs_endpoint(db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"Error retrieving all jobs: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error retrieving jobs: {str(e)}")
+
+
+@router.post("/job/{job_id}/cancel")
+def cancel_scan_endpoint(job_id: str, db: Session = Depends(get_db)):
+    """
+    Request cancellation of a running scan.
+
+    This sets a cancellation flag that the scan workflow checks between phases.
+    The scan will stop gracefully at the next phase boundary.
+
+    Args:
+        job_id: ID of the job to cancel
+        db: Database session
+
+    Returns:
+        Success message with job status
+    """
+    logger.info(f"Received request to cancel scan - Job ID: {job_id}")
+
+    try:
+        # Get the job
+        job = db.query(Job).filter(Job.id == job_id).first()
+
+        if not job:
+            logger.error(f"Job not found: {job_id}")
+            raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+
+        # Check if job is already completed or failed
+        if job.status in ['completed', 'failed', 'cancelled']:
+            logger.warning(f"Cannot cancel job {job_id} - already {job.status}")
+            return {
+                "message": f"Job is already {job.status}",
+                "job_id": job_id,
+                "status": job.status
+            }
+
+        # Set cancellation flag
+        job.cancellation_requested = True
+        job.phase_desc = "Cancellation requested - stopping at next phase..."
+        db.commit()
+
+        logger.info(f"Cancellation requested for job {job_id} - current phase: {job.phase}")
+
+        return {
+            "message": "Cancellation requested - scan will stop gracefully at next phase",
+            "job_id": job_id,
+            "current_phase": job.phase,
+            "status": job.status
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error cancelling job {job_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error cancelling job: {str(e)}")
+
+
+@router.post("/job/{job_id}/resume")
+def resume_scan_endpoint(job_id: str, db: Session = Depends(get_db)):
+    """
+    Resume a suspended scan job.
+
+    When a scan is suspended due to AI rate limiting, this endpoint can be used
+    to resume the scan from where it left off.
+
+    Args:
+        job_id: ID of the suspended job to resume
+        db: Database session
+
+    Returns:
+        Success message with job status and resume information
+    """
+    logger.info(f"Received request to resume scan - Job ID: {job_id}")
+
+    try:
+        # Import here to avoid circular import
+        from services.jobs_service import resume_suspended_job
+
+        # Attempt to resume
+        result = resume_suspended_job(job_id)
+
+        if result.get('success'):
+            logger.info(f"Job {job_id} resumed successfully - {result.get('message')}")
+            return {
+                "message": result.get('message', 'Job resumed'),
+                "job_id": job_id,
+                "status": "running",
+                "retry_count": result.get('retry_count', 0)
+            }
+        else:
+            error_msg = result.get('error', 'Unknown error')
+            logger.warning(f"Cannot resume job {job_id}: {error_msg}")
+
+            # Check if it's a timing issue
+            if 'resume_after' in result:
+                return {
+                    "message": error_msg,
+                    "job_id": job_id,
+                    "status": "suspended",
+                    "resume_after": result.get('resume_after')
+                }
+
+            raise HTTPException(status_code=400, detail=error_msg)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error resuming job {job_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error resuming job: {str(e)}")
 
 
 @router.delete("/job/{job_id}")

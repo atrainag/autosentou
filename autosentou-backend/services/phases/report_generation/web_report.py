@@ -1,16 +1,20 @@
 """
-Web Enumeration Report Generation
+Web Enumeration Report Generation (Phase 2)
 
-Generates web application testing sections with Playwright + LLM analysis.
+Simple path discovery report - NO AI classification based on path names.
+All vulnerability analysis is done in Phase 3 (Web Analysis) with Playwright + LLM.
 """
 
 from typing import Dict, Any, Optional
-from .markdown_utils import sanitize_table_cell, safe_truncate
+from .markdown_utils import sanitize_table_cell
 
 
 def generate_web_enumeration_section(phases_data: Dict[str, Any]) -> Optional[str]:
     """
-    Generate Web Application Testing section.
+    Generate Phase 2: Web Enumeration section.
+
+    This section ONLY lists discovered paths - no AI classification.
+    Actual vulnerability analysis happens in Phase 3 (Web Analysis).
     """
     web_enum_data = phases_data.get('web_enumeration', {})
 
@@ -19,99 +23,55 @@ def generate_web_enumeration_section(phases_data: Dict[str, Any]) -> Optional[st
 
     lines = []
 
-    # Directory Enumeration Summary
-    lines.append("### Directory Enumeration Results\n")
+    lines.append("## 3.2 Phase 2: Web Enumeration\n\n")
+    lines.append("### Overview\n\n")
+    lines.append("Directory and path discovery using feroxbuster and gospider.\n\n")
 
-    # Get path_analysis data (new structure)
-    path_analysis = web_enum_data.get('path_analysis', {})
-    analysis = path_analysis.get('analysis', {})
-    attack_surface = web_enum_data.get('attack_surface', {})
+    # Get discovered paths
+    discovered_paths = web_enum_data.get('discovered_paths', [])
 
-    # Extract statistics from the new structure
-    risk_summary = analysis.get('risk_summary', {})
-    total_paths = analysis.get('total_paths', 0)
-    all_findings = analysis.get('findings', [])
+    # Get statistics
+    total_paths = len(discovered_paths)
+    web_ports = web_enum_data.get('web_ports_detected', [])
 
-    # Calculate statistics
-    critical_high_count = risk_summary.get('critical', 0) + risk_summary.get('high', 0)
-
+    lines.append(f"- **Web Services Found**: {len(web_ports)}\n")
     lines.append(f"- **Total Paths Discovered**: {total_paths}\n")
-    lines.append(f"- **High Risk Paths**: {critical_high_count}\n")
-    lines.append(f"- **Medium Risk Paths**: {risk_summary.get('medium', 0)}\n")
-    lines.append(f"- **Low Risk Paths**: {risk_summary.get('low', 0)}\n")
-
-    # Count sensitive info exposure
-    sensitive_count = len([f for f in all_findings if f.get('category') in ['Sensitive File', 'info_disclosure', 'backup']])
-    lines.append(f"- **Sensitive Information Exposed**: {sensitive_count}\n")
     lines.append("\n")
 
-    # 4.2 High Risk Paths
-    high_risk = [f for f in all_findings if f.get('risk') in ['critical', 'high']]
-    if high_risk:
-        lines.append("### 4.2 High Risk Paths\n")
-        lines.append("The following paths were identified as high-risk through AI-powered analysis:\n\n")
+    # Show discovered paths in a simple table
+    if discovered_paths:
+        lines.append("### Discovered Paths\n\n")
+        lines.append("The following paths were discovered and will be analyzed in Phase 3 (Web Analysis):\n\n")
 
-        lines.append("| URL | Risk Level | Category | Description |\n")
-        lines.append("|-----|------------|----------|-------------|\n")
+        lines.append("| # | URL | Status | Source |\n")
+        lines.append("|---|-----|--------|--------|\n")
 
-        for path in high_risk[:15]:  # Top 15 high-risk paths
-            url = safe_truncate(path.get('clean_path', path.get('path', 'N/A')), max_length=60, truncate_after_pipes=True)
-            risk = sanitize_table_cell(path.get('risk', 'Unknown').capitalize())
-            category = sanitize_table_cell(path.get('category', 'N/A'), max_length=30)
-            description = safe_truncate(path.get('description', 'N/A'), max_length=50, truncate_after_pipes=True)
+        # Show up to 100 paths
+        for idx, path_info in enumerate(discovered_paths[:100], 1):
+            url = path_info.get('url', path_info.get('path', 'N/A'))
+            status = path_info.get('status_code', path_info.get('status', 'N/A'))
+            source = path_info.get('source', 'feroxbuster')
 
-            lines.append(f"| {url} | {risk} | {category} | {description} |\n")
+            # Sanitize for table
+            url_clean = sanitize_table_cell(url, max_length=80)
 
-        lines.append("\n")
+            lines.append(f"| {idx} | {url_clean} | {status} | {source} |\n")
 
-        # Detailed analysis for top 5
-        lines.append("#### Detailed Analysis of Critical Paths\n\n")
-
-        for idx, path in enumerate(high_risk[:5], 1):
-            url = path.get('clean_path', path.get('path', 'N/A'))
-            lines.append(f"##### {idx}. {url}\n\n")
-            lines.append(f"**Risk Level**: {path.get('risk', 'Unknown').capitalize()}\n")
-            lines.append(f"**Category**: {path.get('category', 'N/A')}\n")
-            lines.append(f"**Source**: {path.get('source', 'N/A')}\n\n")
-
-            description = path.get('description', '')
-            if description:
-                lines.append(f"**Description**: {description}\n\n")
-
-            # Attack type and testing method
-            attack_type = path.get('attack_type', '')
-            testing_method = path.get('testing_method', '')
-
-            if attack_type:
-                lines.append(f"**Attack Type**: {attack_type}\n")
-            if testing_method:
-                lines.append(f"**Testing Method**: {testing_method}\n")
-
-            if attack_type or testing_method:
-                lines.append("\n")
-
-            # Similarity score if from RAG
-            if path.get('source') == 'knowledge_base':
-                similarity = path.get('similarity_score', 0)
-                lines.append(f"**RAG Similarity Score**: {similarity:.4f}\n\n")
-
-    # 4.3 Sensitive Information Exposure
-    sensitive_paths = [p for p in all_findings if p.get('category') in ['Sensitive File', 'info_disclosure', 'backup']]
-    if sensitive_paths:
-        lines.append("### 4.3 Sensitive Information Exposure\n")
-        lines.append("The following paths may expose sensitive information:\n\n")
-
-        lines.append("| URL | Category | Risk | Description |\n")
-        lines.append("|-----|----------|------|-------------|\n")
-
-        for path in sensitive_paths[:10]:
-            url = safe_truncate(path.get('clean_path', path.get('path', 'N/A')), max_length=60, truncate_after_pipes=True)
-            category = sanitize_table_cell(path.get('category', 'Unknown'), max_length=30)
-            risk = sanitize_table_cell(path.get('risk', 'Medium').capitalize())
-            description = safe_truncate(path.get('description', 'N/A'), max_length=40, truncate_after_pipes=True)
-
-            lines.append(f"| {url} | {category} | {risk} | {description} |\n")
+        if total_paths > 100:
+            lines.append(f"\n*({total_paths - 100} additional paths discovered - see full list in appendix)*\n")
 
         lines.append("\n")
+
+    # Show web ports detected
+    if web_ports:
+        lines.append("### Web Services Detected\n\n")
+        lines.append("The following HTTP/HTTPS services were detected:\n\n")
+
+        # web_ports is a list of integers [80, 443, 8080]
+        ports_list = ', '.join([str(port) for port in web_ports])
+        lines.append(f"**Ports**: {ports_list}\n\n")
+
+    lines.append("**Note**: Path vulnerability analysis is performed in Phase 3 (Web Analysis) using ")
+    lines.append("Playwright browser automation and LLM-powered content analysis.\n\n")
 
     return ''.join(lines)

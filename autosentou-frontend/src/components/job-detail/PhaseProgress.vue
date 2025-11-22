@@ -81,13 +81,13 @@ const getLineColor = (status) => {
 const getPhaseDescription = (phaseName) => {
   const descriptions = {
     'Information Gathering': 'Port scanning and service detection',
-    'Web Enumeration': 'Directory brute-forcing and web crawling',
+    'Web Enumeration': 'Path discovery and prioritization for testing',
+    'Web Analysis': 'AI-powered deep analysis of discovered paths',
     'Vulnerability Analysis': 'CVE lookup and exploit search',
     'SQL Injection Testing': 'SQL injection vulnerability testing',
     'Authentication Testing': 'Username enumeration and auth testing',
     'Report Generation': 'Generating comprehensive pentest report',
   }
-console.log(phaseName)
   return descriptions[phaseName] || 'Processing...'
 }
 </script>

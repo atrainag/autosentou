@@ -208,7 +208,14 @@
           class="btn-primary"
           :disabled="jobsStore.loading"
         >
-          {{ jobsStore.loading ? 'Starting Scan...' : 'Start Scan' }}
+          <span v-if="jobsStore.loading" class="flex items-center space-x-2">
+            <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span>Checking connectivity...</span>
+          </span>
+          <span v-else>Start Scan</span>
         </button>
       </div>
     </form>
@@ -287,7 +294,14 @@ const handleSubmit = async () => {
       router.push(`/job/${result.job_id}`)
     }
   } catch (error) {
-    appStore.showError('Failed to start scan')
+    // Show detailed error message from backend if available
+    const errorMessage = error.response?.data?.detail || 'Failed to start scan'
+    appStore.showError(errorMessage)
+
+    // If it's a connectivity error, show in form error too
+    if (errorMessage.includes('not responding') || errorMessage.includes('DNS resolution failed')) {
+      errors.value.target = errorMessage
+    }
   }
 }
 

@@ -31,6 +31,24 @@
           >
             🔄 Refresh
           </button>
+          <button
+            v-if="job.status === 'running'"
+            @click="cancelScan"
+            class="btn-warning flex items-center"
+            :disabled="cancelling"
+          >
+            <span v-if="!cancelling">⏹️ Cancel Scan</span>
+            <span v-else>⏳ Cancelling...</span>
+          </button>
+          <button
+            v-if="job.status === 'suspended'"
+            @click="resumeScan"
+            class="btn-primary flex items-center"
+            :disabled="resuming"
+          >
+            <span v-if="!resuming">▶️ Resume Scan</span>
+            <span v-else>⏳ Resuming...</span>
+          </button>
           <router-link
             v-if="job.report_generated"
             :to="`/findings/${job.id}`"
@@ -45,7 +63,7 @@
           >
             📄 Summary PDF
           </router-link>
-          <button @click="openConfirmDialog" class="btn-danger">
+          <button @click="openConfirmDialog" class="btn-danger flex items-center">
             <TrashIcon class="h-5 w-5 mr-2" />
             Delete
           </button>
@@ -59,6 +77,28 @@
           <div>
             <h3 class="text-white font-medium">Scan Failed</h3>
             <p class="text-sm text-gray-300 mt-1">{{ job.error_message }}</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Suspended Status Message -->
+      <div v-if="job.status === 'suspended'" class="card p-4 border-l-4 border-yellow-500">
+        <div class="flex items-start space-x-3">
+          <span class="text-2xl">⏸️</span>
+          <div class="flex-1">
+            <h3 class="text-white font-medium">Scan Suspended</h3>
+            <p class="text-sm text-gray-300 mt-1">
+              {{ job.suspension_reason || 'AI rate limit exceeded' }}
+            </p>
+            <p v-if="job.resume_after" class="text-sm text-yellow-400 mt-2">
+              Can resume after: {{ formatDate(job.resume_after) }}
+            </p>
+            <p v-if="job.last_completed_phase" class="text-sm text-gray-400 mt-1">
+              Last completed phase: {{ job.last_completed_phase }}
+            </p>
+            <p class="text-sm text-gray-500 mt-2">
+              Click "Resume Scan" to continue from where it left off.
+            </p>
           </div>
         </div>
       </div>
@@ -200,12 +240,18 @@
 
           <!-- Web Enumeration Tab -->
           <div v-if="activeTab === 'web_enumeration'" class="space-y-4">
-            <h3 class="text-xl font-semibold text-white mb-4">Web Enumeration Results</h3>
+            <h3 class="text-xl font-semibold text-white mb-4">Path Discovery Results</h3>
+            <div class="p-4 bg-blue-900/20 border border-blue-500/30 rounded-lg mb-4">
+              <p class="text-sm text-blue-300">
+                ℹ️ This phase discovers and prioritizes paths for testing. These are NOT confirmed vulnerabilities -
+                see the "Web Vulnerabilities" tab for actual AI-tested findings.
+              </p>
+            </div>
             <template v-if="webEnumerationData">
               <!-- Summary Stats -->
               <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                 <div class="p-4 bg-cyber-dark rounded-lg">
-                  <div class="text-gray-400 text-sm">Total Paths</div>
+                  <div class="text-gray-400 text-sm">Total Paths Discovered</div>
                   <div class="text-2xl font-bold text-white">{{ webEnumerationData.directory_enumeration?.total_paths || 0 }}</div>
                 </div>
                 <div class="p-4 bg-cyber-dark rounded-lg">
@@ -213,14 +259,14 @@
                   <div class="text-2xl font-bold text-white">{{ webEnumerationData.web_services?.length || 0 }}</div>
                 </div>
                 <div class="p-4 bg-cyber-dark rounded-lg">
-                  <div class="text-gray-400 text-sm">Risk Level</div>
-                  <div class="text-2xl font-bold text-red-500">{{ webEnumerationData.path_analysis?.analysis?.risk_summary?.high || 0 }} High</div>
+                  <div class="text-gray-400 text-sm">High Priority Paths</div>
+                  <div class="text-2xl font-bold text-yellow-500">{{ webEnumerationData.path_analysis?.analysis?.risk_summary?.high || 0 }} High Risk</div>
                 </div>
               </div>
 
               <!-- Discovered Paths with Risk Analysis -->
               <div v-if="webEnumerationData.path_analysis?.analysis?.findings">
-                <h4 class="text-lg font-medium text-white mb-3">Discovered Paths (Top 50)</h4>
+                <h4 class="text-lg font-medium text-white mb-3">Prioritized Paths for Testing (Top 50)</h4>
                 <div class="space-y-2">
                   <div
                     v-for="(finding, index) in webEnumerationData.path_analysis.analysis.findings.slice(0, 50)"
@@ -243,7 +289,7 @@
                             'bg-blue-600'
                           ]"
                         >
-                          {{ finding.risk }}
+                          {{ finding.risk }} priority
                         </span>
                         <span v-if="finding.category" class="badge bg-gray-700 text-xs">{{ finding.category }}</span>
                       </div>
@@ -256,13 +302,130 @@
               v-else
               icon="🌐"
               title="No data available"
-              description="Web enumeration phase not yet completed"
+              description="Path discovery phase not yet completed"
             />
           </div>
 
-          <!-- Vulnerabilities Tab -->
+          <!-- Web Analysis Tab -->
+          <div v-if="activeTab === 'web_analysis'" class="space-y-4">
+            <h3 class="text-xl font-semibold text-white mb-4">Web Vulnerability Analysis</h3>
+            <div class="p-4 bg-purple-900/20 border border-purple-500/30 rounded-lg mb-4">
+              <p class="text-sm text-purple-300">
+                🕷️ This phase uses AI + Playwright to actually test discovered paths for vulnerabilities.
+                Each finding includes evidence, exploitation steps, and remediation guidance.
+              </p>
+            </div>
+            <template v-if="webAnalysisData">
+              <!-- Summary Stats -->
+              <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                <div class="p-4 bg-cyber-dark rounded-lg">
+                  <div class="text-gray-400 text-sm">Paths Analyzed</div>
+                  <div class="text-2xl font-bold text-white">{{ webAnalysisData.analyzed_pages || 0 }}</div>
+                </div>
+                <div class="p-4 bg-cyber-dark rounded-lg">
+                  <div class="text-gray-400 text-sm">Response Groups</div>
+                  <div class="text-2xl font-bold text-white">{{ webAnalysisData.total_groups || 0 }}</div>
+                </div>
+                <div class="p-4 bg-cyber-dark rounded-lg">
+                  <div class="text-gray-400 text-sm">Total Findings</div>
+                  <div class="text-2xl font-bold text-red-500">{{ webAnalysisData.total_findings || 0 }}</div>
+                </div>
+                <div class="p-4 bg-cyber-dark rounded-lg">
+                  <div class="text-gray-400 text-sm">High Priority</div>
+                  <div class="text-2xl font-bold text-orange-500">{{ webAnalysisData.high_priority_paths || 0 }}</div>
+                </div>
+              </div>
+
+              <!-- Web Vulnerabilities -->
+              <div v-if="webAnalysisData.findings && webAnalysisData.findings.length > 0">
+                <h4 class="text-lg font-medium text-white mb-3">Detected Vulnerabilities</h4>
+                <div class="space-y-3">
+                  <div
+                    v-for="(finding, index) in webAnalysisData.findings"
+                    :key="index"
+                    class="p-4 bg-cyber-dark rounded-lg border-l-4"
+                    :class="[
+                      finding.severity === 'Critical' ? 'border-red-600' :
+                      finding.severity === 'High' ? 'border-orange-600' :
+                      finding.severity === 'Medium' ? 'border-yellow-600' :
+                      'border-blue-600'
+                    ]"
+                  >
+                    <!-- Header -->
+                    <div class="flex items-start justify-between mb-3">
+                      <div class="flex-1">
+                        <h5 class="text-white font-medium text-lg">{{ finding.title }}</h5>
+                        <div class="text-sm text-gray-400 font-mono mt-1">{{ finding.url }}</div>
+                      </div>
+                      <div class="flex items-center space-x-2 ml-4">
+                        <span
+                          :class="[
+                            'badge',
+                            finding.severity === 'Critical' ? 'bg-red-600' :
+                            finding.severity === 'High' ? 'bg-orange-600' :
+                            finding.severity === 'Medium' ? 'bg-yellow-600' :
+                            'bg-blue-600'
+                          ]"
+                        >
+                          {{ finding.severity }}
+                        </span>
+                        <span v-if="finding.owasp_category" class="badge bg-purple-600 text-xs">
+                          {{ finding.owasp_category }}
+                        </span>
+                      </div>
+                    </div>
+
+                    <!-- Description -->
+                    <div class="mb-3">
+                      <p class="text-sm text-gray-300">{{ finding.description }}</p>
+                    </div>
+
+                    <!-- Evidence -->
+                    <div v-if="finding.evidence" class="mb-3 p-3 bg-gray-800/50 rounded">
+                      <div class="text-xs text-gray-400 mb-1">Evidence:</div>
+                      <div class="text-sm text-gray-300 font-mono whitespace-pre-wrap">{{ finding.evidence }}</div>
+                    </div>
+
+                    <!-- Exploitation Steps -->
+                    <div v-if="finding.exploitation_steps" class="mb-3">
+                      <div class="text-xs text-gray-400 mb-1">Exploitation Steps:</div>
+                      <ol class="list-decimal list-inside text-sm text-gray-300 space-y-1">
+                        <li v-for="(step, idx) in finding.exploitation_steps.split('\n').filter(s => s.trim())" :key="idx">
+                          {{ step.replace(/^\d+\.\s*/, '') }}
+                        </li>
+                      </ol>
+                    </div>
+
+                    <!-- Remediation -->
+                    <div v-if="finding.remediation" class="p-3 bg-green-900/20 border border-green-500/30 rounded">
+                      <div class="text-xs text-green-400 mb-1">🛡️ Remediation:</div>
+                      <div class="text-sm text-gray-300">{{ finding.remediation }}</div>
+                    </div>
+
+                    <!-- Additional Info -->
+                    <div class="flex items-center space-x-4 mt-3 text-xs text-gray-500">
+                      <span v-if="finding.cwe_id">{{ finding.cwe_id }}</span>
+                      <span v-if="finding.category">{{ finding.category }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div v-else class="text-center py-8">
+                <span class="text-6xl">✅</span>
+                <p class="text-gray-400 mt-4">No web vulnerabilities detected</p>
+              </div>
+            </template>
+            <EmptyState
+              v-else
+              icon="🕷️"
+              title="No data available"
+              description="Web analysis phase not yet completed"
+            />
+          </div>
+
+          <!-- CVE Analysis Tab -->
           <div v-if="activeTab === 'vulnerabilities'" class="space-y-4">
-            <h3 class="text-xl font-semibold text-white mb-4">Vulnerability Analysis</h3>
+            <h3 class="text-xl font-semibold text-white mb-4">CVE Vulnerability Analysis</h3>
             <template v-if="vulnerabilities && vulnerabilities.length > 0">
               <div class="mb-4 flex items-center space-x-4">
                 <span class="text-gray-400">Filter by severity:</span>
@@ -399,13 +562,16 @@ const appStore = useAppStore()
 const activeTab = ref('info_gathering')
 const selectedSeverity = ref('all')
 const isConfirmOpen = ref(false)
+const cancelling = ref(false)
+const resuming = ref(false)
 
 const job = computed(() => jobsStore.currentJob)
 
 const tabs = [
   { id: 'info_gathering', name: 'Info Gathering', icon: '🔍' },
-  { id: 'web_enumeration', name: 'Web Enum', icon: '🌐' },
-  { id: 'vulnerabilities', name: 'Vulnerabilities', icon: '⚠️' },
+  { id: 'web_enumeration', name: 'Path Discovery', icon: '🌐' },
+  { id: 'web_analysis', name: 'Web Vulnerabilities', icon: '🕷️' },
+  { id: 'vulnerabilities', name: 'CVE Analysis', icon: '⚠️' },
   { id: 'sqli', name: 'SQL Injection', icon: '💉' },
   { id: 'auth', name: 'Authentication', icon: '🔐' },
 ]
@@ -423,6 +589,7 @@ const getPhaseData = (phaseName) => {
 
 const infoGatheringData = computed(() => getPhaseData('Information Gathering'))
 const webEnumerationData = computed(() => getPhaseData('Web Enumeration'))
+const webAnalysisData = computed(() => getPhaseData('Web Analysis'))
 const vulnAnalysisData = computed(() => getPhaseData('Vulnerability Analysis'))
 const sqliData = computed(() => getPhaseData('SQL Injection Testing'))
 const authData = computed(() => getPhaseData('Authentication Testing'))
@@ -430,22 +597,45 @@ const authData = computed(() => getPhaseData('Authentication Testing'))
 const vulnerabilities = computed(() => {
   const allVulns = []
 
-  // Get CVE vulnerabilities from vulnerability analysis phase
+  // Get CVE and exploit-based vulnerabilities from vulnerability analysis phase
   if (vulnAnalysisData.value) {
     const vulnResults = vulnAnalysisData.value.vulnerability_results || []
     vulnResults.forEach(service => {
       const vulns = service.vulnerabilities || []
       vulns.forEach(vuln => {
-        allVulns.push({
-          cve_id: vuln.cve_id,
-          name: vuln.cve_id || 'CVE',
-          severity: vuln.severity || 'Unknown',
-          description: vuln.description,
-          remediation: vuln.remediation,
-          service: service.service,
-          port: service.port,
-          type: 'cve'
-        })
+        const vulnType = vuln.type || 'cve'
+
+        // Handle exploit_available type vulnerabilities
+        if (vulnType === 'exploit_available') {
+          allVulns.push({
+            name: `Public Exploits for ${service.service} ${service.version || ''}`.trim(),
+            cve_id: vuln.cve_id || 'N/A',
+            severity: vuln.severity || 'High',
+            description: vuln.description,
+            remediation: vuln.remediation,
+            service: service.service,
+            version: service.version,
+            port: service.port,
+            type: 'exploit_available',
+            owasp_category: vuln.owasp_category || 'A06:2021 – Vulnerable and Outdated Components',
+            exploit_count: vuln.exploit_count || 0,
+            exploits: vuln.exploit_evidence || []
+          })
+        } else {
+          // CVE-based vulnerability
+          allVulns.push({
+            cve_id: vuln.cve_id,
+            name: vuln.cve_id || 'CVE',
+            severity: vuln.severity || 'Unknown',
+            description: vuln.description,
+            remediation: vuln.remediation,
+            service: service.service,
+            version: service.version,
+            port: service.port,
+            type: 'cve',
+            owasp_category: vuln.owasp_category
+          })
+        }
       })
     })
   }
@@ -484,22 +674,8 @@ const vulnerabilities = computed(() => {
     })
   }
 
-  // Get Web Exposure vulnerabilities
-  if (webEnumerationData.value) {
-    const findings = webEnumerationData.value.path_analysis?.analysis?.findings || []
-    findings.forEach(finding => {
-      if (finding.risk && ['critical', 'high'].includes(finding.risk.toLowerCase())) {
-        allVulns.push({
-          name: finding.category || 'Web Exposure',
-          severity: finding.risk,
-          description: finding.description || `${finding.category} found at ${finding.clean_path || finding.path}`,
-          url: finding.clean_path || finding.path,
-          category: finding.category,
-          type: 'web_exposure'
-        })
-      }
-    })
-  }
+  // Note: Web exposure findings are NOT included here - they're shown in the "Web Vulnerabilities" tab
+  // Path discovery is for prioritization only; actual web vulnerabilities come from Web Analysis phase
 
   return allVulns
 })
@@ -513,6 +689,89 @@ const filteredVulnerabilities = computed(() => {
 
 const refreshJob = async () => {
   await jobsStore.fetchJob(route.params.id)
+}
+
+const cancelScan = async () => {
+  if (!job.value || cancelling.value) return
+
+  if (!confirm(`Are you sure you want to cancel this scan?\n\nThe scan will stop gracefully at the next phase boundary.`)) {
+    return
+  }
+
+  cancelling.value = true
+
+  try {
+    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/job/${job.value.id}/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to cancel scan')
+    }
+
+    const data = await response.json()
+
+    appStore.showToast({
+      message: data.message || 'Scan cancellation requested',
+      type: 'info'
+    })
+
+    // Refresh job to show updated status
+    await refreshJob()
+  } catch (error) {
+    console.error('Error cancelling scan:', error)
+    appStore.showToast({
+      message: 'Failed to cancel scan',
+      type: 'error'
+    })
+  } finally {
+    cancelling.value = false
+  }
+}
+
+const resumeScan = async () => {
+  if (!job.value || resuming.value) return
+
+  resuming.value = true
+
+  try {
+    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/job/${job.value.id}/resume`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    })
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      // Check if it's a timing issue
+      if (data.resume_after) {
+        appStore.showToast({
+          message: `Cannot resume yet. Please wait until ${new Date(data.resume_after).toLocaleTimeString()}`,
+          type: 'warning'
+        })
+      } else {
+        throw new Error(data.detail || 'Failed to resume scan')
+      }
+      return
+    }
+
+    appStore.showToast({
+      message: data.message || 'Scan resumed successfully',
+      type: 'success'
+    })
+
+    // Refresh job to show updated status
+    await refreshJob()
+  } catch (error) {
+    console.error('Error resuming scan:', error)
+    appStore.showToast({
+      message: error.message || 'Failed to resume scan',
+      type: 'error'
+    })
+  } finally {
+    resuming.value = false
+  }
 }
 
 const openConfirmDialog = () => {

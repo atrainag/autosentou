@@ -146,10 +146,17 @@ def generate_summary_report(job: Job, summary_data: Dict[str, Any]) -> str:
     lines.append("### Testing Methodology\n\n")
     lines.append("This assessment follows industry-standard penetration testing methodology:\n\n")
     lines.append("1. **Information Gathering** - Network reconnaissance and service identification using Nmap\n")
-    lines.append("2. **Vulnerability Analysis** - CVE analysis using NVD database and exploit databases\n")
-    lines.append("3. **Web Application Testing** - Directory enumeration using Dirsearch with AI-powered analysis\n")
+    lines.append("2. **Vulnerability Analysis** - CVE matching via NVD (National Vulnerability Database) API and exploit searching via ExploitDB/GitHub\n")
+    lines.append("3. **Web Application Testing** - Directory enumeration using Dirsearch with AI-powered risk analysis\n")
     lines.append("4. **SQL Injection Testing** - Automated injection testing using SQLMap\n")
-    lines.append("5. **Authentication Testing** - Login page security analysis and brute force testing\n\n")
+    lines.append("5. **Authentication Testing** - Login page security analysis and credential testing\n\n")
+
+    lines.append("### Vulnerability Detection Sources\n\n")
+    lines.append("Vulnerabilities in this report were identified through:\n\n")
+    lines.append("- **NVD (National Vulnerability Database):** CVE information from NIST's official database\n")
+    lines.append("- **ExploitDB:** Public exploit repository maintained by Offensive Security\n")
+    lines.append("- **GitHub Security Advisories:** Open-source vulnerability disclosures and proof-of-concepts\n")
+    lines.append("- **Automated Testing Tools:** SQLMap, Nmap, Dirsearch for active vulnerability testing\n\n")
 
     lines.append("### Severity Definitions\n\n")
     lines.append("- **Critical:** Vulnerabilities that can be exploited immediately with severe impact "

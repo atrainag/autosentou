@@ -176,18 +176,43 @@ const vulnerabilities = computed(() => {
 
   const allVulns = []
 
-  // CVE vulnerabilities
+  // CVE and exploit-based vulnerabilities
   const vulnResults = vulnPhase?.data?.vulnerability_results || []
   vulnResults.forEach(service => {
     service.vulnerabilities?.forEach(vuln => {
-      allVulns.push({
-        name: vuln.cve_id || vuln.name,
-        cve_id: vuln.cve_id,
-        severity: vuln.severity,
-        description: vuln.description,
-        remediation: vuln.remediation,
-        type: 'cve'
-      })
+      const vulnType = vuln.type || 'cve'
+
+      if (vulnType === 'exploit_available') {
+        // Exploit-based vulnerability
+        allVulns.push({
+          name: `Public Exploits for ${service.service} ${service.version || ''}`.trim(),
+          cve_id: vuln.cve_id || 'N/A',
+          severity: vuln.severity || 'High',
+          description: vuln.description,
+          remediation: vuln.remediation,
+          type: 'exploit_available',
+          service: service.service,
+          version: service.version,
+          port: service.port,
+          owasp_category: vuln.owasp_category || 'A06:2021 – Vulnerable and Outdated Components',
+          exploit_count: vuln.exploit_count || 0,
+          exploits: vuln.exploit_evidence || []
+        })
+      } else {
+        // CVE-based vulnerability
+        allVulns.push({
+          name: vuln.cve_id || vuln.name,
+          cve_id: vuln.cve_id,
+          severity: vuln.severity,
+          description: vuln.description,
+          remediation: vuln.remediation,
+          type: 'cve',
+          service: service.service,
+          version: service.version,
+          port: service.port,
+          owasp_category: vuln.owasp_category
+        })
+      }
     })
   })
 
@@ -219,18 +244,20 @@ const vulnerabilities = computed(() => {
     }
   })
 
-  // Web Exposure vulnerabilities
-  const webFindings = webPhase?.data?.path_analysis?.analysis?.findings || []
-  webFindings.forEach(finding => {
-    if (finding.risk && ['critical', 'high'].includes(finding.risk.toLowerCase())) {
-      allVulns.push({
-        name: finding.category || 'Web Exposure',
-        severity: finding.risk,
-        description: finding.description || `${finding.category} found at ${finding.clean_path || finding.path}`,
-        remediation: 'Review and secure exposed resources',
-        type: 'web_exposure'
-      })
-    }
+  // Web Analysis vulnerabilities (actual AI-tested findings)
+  const webAnalysisPhase = job.value?.phases?.find(p => p.phase_name === 'Web Analysis')
+  const webAnalysisFindings = webAnalysisPhase?.data?.findings || []
+  webAnalysisFindings.forEach(finding => {
+    allVulns.push({
+      name: finding.title || finding.category || 'Web Vulnerability',
+      severity: finding.severity || 'Medium',
+      description: finding.description || '',
+      remediation: finding.remediation || 'Review and remediate the vulnerability',
+      type: 'web_analysis',
+      url: finding.url,
+      owasp_category: finding.owasp_category,
+      cwe_id: finding.cwe_id
+    })
   })
 
   return allVulns

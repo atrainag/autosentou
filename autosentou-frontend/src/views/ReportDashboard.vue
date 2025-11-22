@@ -480,7 +480,7 @@ const formatFindingType = (type) => {
     'cve': 'CVE',
     'sqli': 'SQL Injection',
     'authentication': 'Authentication',
-    'web_exposure': 'Web Exposure'
+    'web_analysis': 'Web Vulnerability'
   }
   return types[type] || type
 }

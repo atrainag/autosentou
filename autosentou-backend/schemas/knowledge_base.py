@@ -14,6 +14,7 @@ class KnowledgeBaseVulnerabilityBase(BaseModel):
     remediation: Optional[str] = Field(None, description="Remediation advice")
     cve_id: Optional[str] = Field(None, description="CVE identifier")
     cwe_id: Optional[str] = Field(None, description="CWE identifier")
+    owasp_category: Optional[str] = Field(None, description="OWASP Top 10 category (e.g., A03:2021 - Injection)")
     category: Optional[str] = Field(None, description="Category (e.g., Web, Network, Auth)")
     priority: int = Field(default=0, ge=0, le=100, description="Priority for matching (0-100)")
 
@@ -31,6 +32,7 @@ class KnowledgeBaseVulnerabilityUpdate(BaseModel):
     remediation: Optional[str] = None
     cve_id: Optional[str] = None
     cwe_id: Optional[str] = None
+    owasp_category: Optional[str] = None
     category: Optional[str] = None
     is_active: Optional[bool] = None
     priority: Optional[int] = Field(None, ge=0, le=100)

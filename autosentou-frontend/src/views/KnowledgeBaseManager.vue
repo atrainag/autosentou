@@ -191,6 +191,9 @@
                 Severity
               </th>
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                OWASP Top 10
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                 CVE / CWE
               </th>
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
@@ -223,6 +226,12 @@
                 <SeverityBadge :severity="vuln.severity" />
               </td>
               <td class="px-6 py-4">
+                <span v-if="vuln.owasp_category" class="text-xs text-gray-300 bg-gray-800 px-2 py-1 rounded">
+                  {{ vuln.owasp_category }}
+                </span>
+                <span v-else class="text-gray-500 text-sm">-</span>
+              </td>
+              <td class="px-6 py-4">
                 <div class="space-y-1">
                   <div v-if="vuln.cve_id" class="text-xs">
                     <span class="text-gray-400">CVE:</span>
@@ -230,7 +239,7 @@
                   </div>
                   <div v-if="vuln.cwe_id" class="text-xs">
                     <span class="text-gray-400">CWE:</span>
-                    <span class="text-cyber-cyan ml-1">{{ vuln.cwe_id }}</span>
+                    <span class="text-purple-400 ml-1">{{ vuln.cwe_id }}</span>
                   </div>
                   <span v-if="!vuln.cve_id && !vuln.cwe_id" class="text-gray-500 text-sm">-</span>
                 </div>

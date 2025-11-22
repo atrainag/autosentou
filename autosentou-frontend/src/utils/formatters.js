@@ -63,6 +63,8 @@ export const getStatusColor = (status) => {
     pending: 'bg-yellow-600 text-white',
     completed: 'bg-green-600 text-white',
     failed: 'bg-red-600 text-white',
+    cancelled: 'bg-gray-600 text-white',
+    suspended: 'bg-yellow-500 text-black',
   }
   return colors[status?.toLowerCase()] || 'bg-gray-600 text-white'
 }
@@ -76,6 +78,8 @@ export const getStatusText = (status) => {
     pending: 'Pending',
     completed: 'Completed',
     failed: 'Failed',
+    cancelled: 'Cancelled',
+    suspended: 'Suspended',
   }
   return texts[status?.toLowerCase()] || status
 }
@@ -99,12 +103,13 @@ export const getPhaseIcon = (phaseName) => {
   const icons = {
     info_gathering: '🔍',
     web_enumeration: '🌐',
+    web_analysis: '🕷️',
     vulnerability_analysis: '⚠️',
     sqli_testing: '💉',
     authentication_testing: '🔐',
     report_generation: '📄',
   }
-  return icons[phaseName?.toLowerCase()] || '📋'
+  return icons[phaseName?.toLowerCase().replace(/ /g, '_')] || '📋'
 }
 
 /**

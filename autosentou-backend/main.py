@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from  controllers.jobs_controller import router as jobs_router
 from  controllers.knowledge_base_controller import router as kb_router
+from  controllers.phase_testing_controller import router as phase_testing_router
 from  database import engine
 import models
 from services.utils.logging_config import configure_app_logging
@@ -36,7 +37,8 @@ logger.info("CORS middleware configured")
 # Include routes
 app.include_router(jobs_router)
 app.include_router(kb_router)
-logger.info("API routes registered (jobs, knowledge_base)")
+app.include_router(phase_testing_router)
+logger.info("API routes registered (jobs, knowledge_base, phase_testing)")
 
 @app.on_event("startup")
 async def startup_event():

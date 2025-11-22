@@ -78,6 +78,28 @@
               ({{ kbStore.uncategorizedPagination.total }} total)
             </span>
           </h2>
+          <div class="flex items-center space-x-3">
+            <button
+              v-if="kbStore.uncategorizedPagination.total > 0 && !recategorizing"
+              @click="handleRecategorizeAll"
+              class="btn-primary flex items-center space-x-2"
+            >
+              🤖 AI Re-categorize All
+            </button>
+            <div v-if="recategorizing" class="flex items-center space-x-3">
+              <span class="text-gray-300">
+                ⏳ Processing {{ recategorizeProgress.current }}/{{ recategorizeProgress.total }}...
+              </span>
+              <button
+                @click="handleCancelRecategorization"
+                class="btn-danger flex items-center space-x-2"
+                :disabled="cancelling"
+              >
+                <span v-if="!cancelling">⏹️ Cancel</span>
+                <span v-else>Cancelling...</span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -108,10 +130,13 @@
                 Severity
               </th>
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                Service / URL
+                OWASP
               </th>
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                CVE
+                CVE / CWE
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                Service / URL
               </th>
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                 Actions
@@ -140,6 +165,25 @@
                 <SeverityBadge :severity="finding.severity" />
               </td>
               <td class="px-6 py-4">
+                <span v-if="finding.owasp_category" class="text-xs text-gray-300 bg-gray-800 px-2 py-1 rounded">
+                  {{ finding.owasp_category }}
+                </span>
+                <span v-else class="text-gray-500 text-sm">-</span>
+              </td>
+              <td class="px-6 py-4">
+                <div class="text-xs space-y-1">
+                  <div v-if="finding.cve_id">
+                    <span class="text-gray-400">CVE:</span>
+                    <span class="text-cyber-cyan ml-1">{{ finding.cve_id }}</span>
+                  </div>
+                  <div v-if="finding.evidence && typeof finding.evidence === 'object' && finding.evidence.cwe_id">
+                    <span class="text-gray-400">CWE:</span>
+                    <span class="text-purple-400 ml-1">{{ finding.evidence.cwe_id }}</span>
+                  </div>
+                  <span v-if="!finding.cve_id && (!finding.evidence || !finding.evidence.cwe_id)" class="text-gray-500">-</span>
+                </div>
+              </td>
+              <td class="px-6 py-4">
                 <div class="text-sm">
                   <div v-if="finding.service" class="text-white">
                     {{ finding.service }}
@@ -150,12 +194,6 @@
                   </div>
                   <span v-if="!finding.service && !finding.url" class="text-gray-500">-</span>
                 </div>
-              </td>
-              <td class="px-6 py-4">
-                <span v-if="finding.cve_id" class="text-cyber-cyan text-sm">
-                  {{ finding.cve_id }}
-                </span>
-                <span v-else class="text-gray-500 text-sm">-</span>
               </td>
               <td class="px-6 py-4">
                 <div class="flex items-center space-x-2">
@@ -232,6 +270,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useKnowledgeBaseStore } from '../../stores/knowledgeBase'
+import { useAppStore } from '../../stores/app'
 import LoadingSpinner from '../common/LoadingSpinner.vue'
 import EmptyState from '../common/EmptyState.vue'
 import SeverityBadge from '../common/SeverityBadge.vue'
@@ -239,6 +278,7 @@ import FindingDetailsModal from './FindingDetailsModal.vue'
 import LinkFindingModal from './LinkFindingModal.vue'
 
 const kbStore = useKnowledgeBaseStore()
+const appStore = useAppStore()
 
 // State
 const searchQuery = ref('')
@@ -247,6 +287,9 @@ const typeFilter = ref(null)
 const showDetailsModal = ref(false)
 const showLinkModal = ref(false)
 const selectedFinding = ref(null)
+const recategorizing = ref(false)
+const cancelling = ref(false)
+const recategorizeProgress = ref({ current: 0, total: 0 })
 
 // Computed
 const hasActiveFilters = computed(() => {
@@ -302,6 +345,94 @@ const handleLinked = async () => {
     kbStore.fetchUncategorizedFindings(),
     kbStore.fetchStats()
   ])
+}
+
+const handleRecategorizeAll = async () => {
+  const total = kbStore.uncategorizedPagination.total
+
+  if (!confirm(
+    `This will re-categorize ${total} uncategorized findings using AI.\n\n` +
+    `⏱ Estimated time: ~${Math.ceil(total / 10)} minutes (due to API rate limits)\n\n` +
+    `The process will run in the background. Continue?`
+  )) {
+    return
+  }
+
+  recategorizing.value = true
+  recategorizeProgress.value = { current: 0, total }
+
+  try {
+    const response = await fetch(
+      `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/knowledge-base/recategorize-uncategorized`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      }
+    )
+
+    if (!response.ok) {
+      throw new Error('Failed to start re-categorization')
+    }
+
+    const result = await response.json()
+
+    appStore.showToast({
+      message: `✓ Re-categorization complete!\n${result.successful} successful, ${result.failed} failed`,
+      type: 'success'
+    })
+
+    // Refresh the list and stats
+    await Promise.all([
+      kbStore.fetchUncategorizedFindings(),
+      kbStore.fetchStats()
+    ])
+
+  } catch (error) {
+    console.error('Error re-categorizing findings:', error)
+    appStore.showToast({
+      message: 'Failed to re-categorize findings. Check logs for details.',
+      type: 'error'
+    })
+  } finally {
+    recategorizing.value = false
+    cancelling.value = false
+    recategorizeProgress.value = { current: 0, total: 0 }
+  }
+}
+
+const handleCancelRecategorization = async () => {
+  if (!confirm('Are you sure you want to cancel the re-categorization?\n\nProgress will be saved up to the current finding.')) {
+    return
+  }
+
+  cancelling.value = true
+
+  try {
+    const response = await fetch(
+      `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/knowledge-base/cancel-recategorization`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      }
+    )
+
+    if (!response.ok) {
+      throw new Error('Failed to cancel re-categorization')
+    }
+
+    appStore.showToast({
+      message: 'Cancellation requested - stopping after current finding...',
+      type: 'info'
+    })
+
+  } catch (error) {
+    console.error('Error cancelling re-categorization:', error)
+    appStore.showToast({
+      message: 'Failed to request cancellation',
+      type: 'error'
+    })
+    cancelling.value = false
+  }
 }
 
 // Lifecycle

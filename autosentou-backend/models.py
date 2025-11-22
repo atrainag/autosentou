@@ -36,14 +36,22 @@ class Job(Base):
     id = Column(String, primary_key=True, index=True)
     description = Column(String)
     target = Column(Text)
-    status = Column(String)
+    status = Column(String)  # running, completed, failed, cancelled, suspended
     phase = Column(String)
     phase_desc = Column(String)
     report_generated = Column(Boolean, default=False)
     error_message = Column(Text, nullable=True)
+    cancellation_requested = Column(Boolean, default=False)  # For graceful scan cancellation
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     custom_wordlist = Column(String, nullable=True)  # Path to wordlist file
+
+    # Suspension/Resume fields for rate limit handling
+    suspension_reason = Column(String, nullable=True)  # Why the job was suspended
+    last_completed_phase = Column(String, nullable=True)  # Phase completed before suspension
+    suspended_at = Column(DateTime, nullable=True)  # When job was suspended
+    resume_after = Column(DateTime, nullable=True)  # When to auto-resume (based on rate limit)
+    retry_count = Column(Integer, default=0)  # Number of resume attempts
 
     # Relationships
     phases = relationship("Phase", back_populates="job", cascade="all, delete-orphan")
@@ -95,6 +103,7 @@ class KnowledgeBaseVulnerability(Base):
     # Enhanced fields for better matching and categorization
     cve_id = Column(String, nullable=True, index=True)
     cwe_id = Column(String, nullable=True, index=True)
+    owasp_category = Column(String, nullable=True, index=True)  # e.g., "A03:2021 - Injection"
     category = Column(String, nullable=True, index=True)  # e.g., "Web", "Network", "Auth"
     is_active = Column(Boolean, default=True)
     priority = Column(Integer, default=0)  # Higher = preferred when multiple matches
