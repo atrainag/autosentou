@@ -36,48 +36,6 @@
         ></textarea>
       </div>
 
-      <!-- Scan Options -->
-      <div>
-        <label class="input-label mb-3">Scan Options</label>
-        <div class="space-y-3">
-          <label class="flex items-center space-x-3 cursor-pointer">
-            <input
-              v-model="formData.include_web_enumeration"
-              type="checkbox"
-              class="w-4 h-4 text-cyber-cyan bg-cyber-darker border-gray-700 rounded focus:ring-cyber-cyan"
-            />
-            <div>
-              <span class="text-white">Web Enumeration</span>
-              <p class="text-xs text-gray-500">Directory brute-forcing and web crawling</p>
-            </div>
-          </label>
-
-          <label class="flex items-center space-x-3 cursor-pointer">
-            <input
-              v-model="formData.include_sqli_testing"
-              type="checkbox"
-              class="w-4 h-4 text-cyber-cyan bg-cyber-darker border-gray-700 rounded focus:ring-cyber-cyan"
-            />
-            <div>
-              <span class="text-white">SQL Injection Testing</span>
-              <p class="text-xs text-gray-500">Test discovered endpoints for SQL injection</p>
-            </div>
-          </label>
-
-          <label class="flex items-center space-x-3 cursor-pointer">
-            <input
-              v-model="formData.include_brute_force"
-              type="checkbox"
-              class="w-4 h-4 text-cyber-cyan bg-cyber-darker border-gray-700 rounded focus:ring-cyber-cyan"
-            />
-            <div>
-              <span class="text-white">Brute Force Authentication</span>
-              <p class="text-xs text-gray-500">Username enumeration and authentication testing</p>
-            </div>
-          </label>
-        </div>
-      </div>
-
       <!-- Custom Wordlist -->
       <div>
         <label class="input-label">Custom Wordlist (Optional)</label>
@@ -153,48 +111,6 @@
         </p>
       </div>
 
-      <!-- Advanced Options (Collapsible) -->
-      <div>
-        <button
-          type="button"
-          @click="showAdvanced = !showAdvanced"
-          class="flex items-center space-x-2 text-cyber-cyan hover:text-cyan-400"
-        >
-          <span>Advanced Options</span>
-          <ChevronDownIcon
-            :class="['h-4 w-4 transition-transform', { 'rotate-180': showAdvanced }]"
-          />
-        </button>
-
-        <div v-if="showAdvanced" class="mt-4 space-y-4 p-4 border border-gray-700 rounded-lg">
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <label class="input-label">Max Threads</label>
-              <input
-                v-model.number="formData.max_threads"
-                type="number"
-                class="input-field"
-                min="1"
-                max="100"
-              />
-              <p class="text-gray-500 text-xs mt-1">Concurrent threads (1-100)</p>
-            </div>
-
-            <div>
-              <label class="input-label">Timeout (seconds)</label>
-              <input
-                v-model.number="formData.timeout"
-                type="number"
-                class="input-field"
-                min="10"
-                max="3600"
-              />
-              <p class="text-gray-500 text-xs mt-1">Request timeout</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <!-- Error Message -->
       <div v-if="jobsStore.error" class="p-4 bg-red-900/50 border border-red-500 rounded-lg">
         <p class="text-red-300 text-sm">{{ jobsStore.error }}</p>
@@ -235,24 +151,17 @@ import {
   ListboxOptions,
   ListboxOption,
 } from '@headlessui/vue'
-import { CheckIcon, ChevronUpDownIcon, ChevronDownIcon } from '@heroicons/vue/24/outline'
+import { CheckIcon, ChevronUpDownIcon } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
 const jobsStore = useJobsStore()
 const wordlistsStore = useWordlistsStore()
 const appStore = useAppStore()
 
-const showAdvanced = ref(false)
-
 const formData = ref({
   target: '',
   description: '',
-  include_web_enumeration: true,
-  include_sqli_testing: true,
-  include_brute_force: false,
   custom_wordlist: null,
-  max_threads: 10,
-  timeout: 300,
 })
 
 const errors = ref({

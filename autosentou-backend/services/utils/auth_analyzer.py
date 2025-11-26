@@ -104,6 +104,20 @@ class AuthAnalyzer:
             enumeration_result = self.test_username_enumeration(url, form_data, method)
             analysis.update(enumeration_result)
 
+            # Step 2.5: Detect SQL injection indicators
+            sqli_result = self._detect_sqli_indicators(url, form_data, method)
+            if sqli_result['indicators_found']:
+                analysis['sqli_indicators'] = sqli_result
+                analysis['vulnerabilities'].append({
+                    'type': 'Potential SQL Injection',
+                    'severity': 'Critical',
+                    'cvss': 9.8,
+                    'cwe': 'CWE-89',
+                    'owasp': 'A03:2021 - Injection',
+                    'details': sqli_result,
+                    'requires_sqlmap': True  # Flag for SQLMap automation
+                })
+
             # Step 3: Check security controls
             security_controls = self._check_security_controls(url)
             analysis['security_controls'].update(security_controls)
@@ -368,6 +382,184 @@ class AuthAnalyzer:
         except Exception as e:
             logger.debug(f"Error extracting error message: {e}")
             return ""
+
+    def _detect_sqli_indicators(
+        self,
+        url: str,
+        form_data: Dict[str, str],
+        method: str = 'POST'
+    ) -> Dict[str, Any]:
+        """
+        Detect SQL injection indicators (NOT exploitation).
+
+        Tests for:
+        - SQL error messages in responses
+        - Timing anomalies with SLEEP/WAITFOR
+        - Boolean-based differences
+
+        Args:
+            url: Login endpoint URL
+            form_data: Form field names
+            method: HTTP method
+
+        Returns:
+            Detection results with indicators found
+        """
+        logger.info("Detecting SQL injection indicators...")
+
+        result = {
+            'indicators_found': False,
+            'indicator_types': [],
+            'test_results': [],
+            'evidence': [],
+            'sqlmap_params': {}  # Params to pass to SQLMap
+        }
+
+        username_field = form_data.get('username_field', 'username')
+        password_field = form_data.get('password_field', 'password')
+
+        # SQL error message patterns
+        sql_error_patterns = [
+            r"SQL syntax.*MySQL",
+            r"Warning.*mysql_",
+            r"valid MySQL result",
+            r"MySqlClient\.",
+            r"PostgreSQL.*ERROR",
+            r"Warning.*\Wpg_",
+            r"valid PostgreSQL result",
+            r"Npgsql\.",
+            r"Driver.*SQL.*Server",
+            r"OLE DB.*SQL Server",
+            r"(\W|^)SQL Server.*Driver",
+            r"Warning.*mssql_",
+            r"Microsoft Access Driver",
+            r"Oracle error",
+            r"Oracle.*Driver",
+            r"Warning.*\Woci_",
+            r"Warning.*\Wora_",
+            r"SQLite\/JDBCDriver",
+            r"SQLite.Exception",
+            r"System.Data.SQLite.SQLiteException",
+            r"Warning.*sqlite_",
+            r"quoted string not properly terminated"
+        ]
+
+        # Test 1: SQL error-based detection (single quote injection)
+        payload = "admin' OR '1'='1"
+        test_data = {
+            username_field: payload,
+            password_field: 'test'
+        }
+
+        error_response = self._send_login_request(url, test_data, method)
+
+        if error_response:
+            response_text = self.session.get(url).text if method == 'GET' else ""
+
+            # Check for SQL errors
+            for pattern in sql_error_patterns:
+                if re.search(pattern, response_text, re.IGNORECASE):
+                    result['indicators_found'] = True
+                    result['indicator_types'].append('SQL Error Message')
+                    result['evidence'].append({
+                        'type': 'SQL Error',
+                        'payload': payload,
+                        'pattern_matched': pattern,
+                        'description': 'SQL error message detected in response'
+                    })
+                    break
+
+            result['test_results'].append({
+                'test': 'Error-Based Detection',
+                'payload': payload,
+                'status_code': error_response['status_code'],
+                'error_detected': result['indicators_found']
+            })
+
+        # Test 2: Boolean-based blind detection
+        true_payload = "admin' OR '1'='1' --"
+        false_payload = "admin' OR '1'='2' --"
+
+        true_response = self._send_login_request(
+            url, {username_field: true_payload, password_field: 'test'}, method
+        )
+        false_response = self._send_login_request(
+            url, {username_field: false_payload, password_field: 'test'}, method
+        )
+
+        if true_response and false_response:
+            # Significant difference suggests boolean-based SQLi
+            length_diff = abs(true_response['content_length'] - false_response['content_length'])
+            if length_diff > 100:
+                result['indicators_found'] = True
+                result['indicator_types'].append('Boolean-Based')
+                result['evidence'].append({
+                    'type': 'Boolean-Based',
+                    'true_payload': true_payload,
+                    'false_payload': false_payload,
+                    'length_difference': length_diff,
+                    'description': 'Different response lengths suggest boolean-based SQLi'
+                })
+
+            result['test_results'].append({
+                'test': 'Boolean-Based Detection',
+                'true_length': true_response['content_length'],
+                'false_length': false_response['content_length'],
+                'difference': length_diff
+            })
+
+        # Test 3: Time-based blind detection (5 second sleep)
+        # Note: This is risky, so we use minimal delay
+        time_payload = "admin' WAITFOR DELAY '00:00:05' --"
+        baseline_response = self._send_login_request(
+            url, {username_field: 'admin', password_field: 'test'}, method
+        )
+        time_response = self._send_login_request(
+            url, {username_field: time_payload, password_field: 'test'}, method
+        )
+
+        if baseline_response and time_response:
+            baseline_time = baseline_response['response_time']
+            test_time = time_response['response_time']
+            time_diff = test_time - baseline_time
+
+            # If response takes ~5 seconds longer, likely time-based SQLi
+            if time_diff > 4500:  # 4.5 seconds tolerance
+                result['indicators_found'] = True
+                result['indicator_types'].append('Time-Based')
+                result['evidence'].append({
+                    'type': 'Time-Based',
+                    'payload': time_payload,
+                    'baseline_time_ms': baseline_time,
+                    'test_time_ms': test_time,
+                    'delay_detected_ms': time_diff,
+                    'description': 'Time delay detected, suggests time-based SQLi'
+                })
+
+            result['test_results'].append({
+                'test': 'Time-Based Detection',
+                'baseline_time': baseline_time,
+                'payload_time': test_time,
+                'difference': time_diff
+            })
+
+        # Prepare SQLMap parameters if indicators found
+        if result['indicators_found']:
+            result['sqlmap_params'] = {
+                'url': url,
+                'method': method,
+                'data': {
+                    username_field: '*',  # SQLMap wildcard
+                    password_field: 'test'
+                },
+                'testParameter': username_field,
+                'indicator_types': result['indicator_types']
+            }
+            logger.warning(f"SQL injection indicators detected: {', '.join(result['indicator_types'])}")
+        else:
+            logger.info("No SQL injection indicators detected")
+
+        return result
 
     def _discover_form_fields(self, url: str) -> Dict[str, str]:
         """

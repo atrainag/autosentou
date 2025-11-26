@@ -13,7 +13,10 @@
           >
             ← Back
           </button>
-          <h1 class="text-3xl font-bold text-white">📄 Penetration Test Report</h1>
+          <div class="flex items-center space-x-3">
+            <DocumentTextIcon class="w-8 h-8 text-cyan-400" />
+            <h1 class="text-3xl font-bold text-white">Penetration Test Report</h1>
+          </div>
           <p class="text-gray-400 mt-1">{{ job.target }}</p>
           <div class="text-sm text-gray-500 mt-2">
             Generated: {{ formatDate(job.report?.generated_at || job.updated_at) }}
@@ -22,21 +25,24 @@
         <div class="flex space-x-3">
           <router-link
             :to="`/findings/${job.id}`"
-            class="btn-primary"
+            class="btn-primary flex items-center space-x-2"
           >
-            📊 Interactive Findings
+            <ChartBarIcon class="w-5 h-5" />
+            <span>Interactive Findings</span>
           </router-link>
           <button
             @click="downloadReport('pdf')"
-            class="btn-secondary"
+            class="btn-secondary flex items-center space-x-2"
           >
-            📥 Download PDF
+            <ArrowDownTrayIcon class="w-5 h-5" />
+            <span>Download PDF</span>
           </button>
           <button
             @click="downloadReport('docx')"
-            class="btn-secondary"
+            class="btn-secondary flex items-center space-x-2"
           >
-            📥 Download DOCX
+            <ArrowDownTrayIcon class="w-5 h-5" />
+            <span>Download DOCX</span>
           </button>
         </div>
       </div>
@@ -121,10 +127,12 @@
       <!-- No Report Generated -->
       <EmptyState
         v-else
-        icon="📄"
         title="Report not generated"
         description="The scan is still in progress or failed to generate a report"
       >
+        <template #icon>
+          <DocumentTextIcon class="w-16 h-16 mx-auto text-gray-600" />
+        </template>
         <template #action>
           <router-link :to="`/job/${job.id}`" class="btn-primary">
             View Job Details
@@ -136,10 +144,12 @@
     <!-- Job Not Found -->
     <EmptyState
       v-else
-      icon="❌"
       title="Report not found"
       description="The requested report could not be found"
     >
+      <template #icon>
+        <XCircleIcon class="w-16 h-16 mx-auto text-red-500" />
+      </template>
       <template #action>
         <router-link to="/" class="btn-primary">
           Go to Dashboard
@@ -158,6 +168,12 @@ import LoadingSpinner from '../components/common/LoadingSpinner.vue'
 import EmptyState from '../components/common/EmptyState.vue'
 import SeverityBadge from '../components/common/SeverityBadge.vue'
 import { formatDate } from '../utils/formatters'
+import {
+  DocumentTextIcon,
+  ChartBarIcon,
+  ArrowDownTrayIcon,
+  XCircleIcon
+} from '@heroicons/vue/24/outline'
 
 const route = useRoute()
 const jobsStore = useJobsStore()

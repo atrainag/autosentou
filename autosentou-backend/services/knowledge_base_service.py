@@ -96,12 +96,16 @@ def get_vulnerabilities(
     search: Optional[str] = None,
     category: Optional[str] = None,
     severity: Optional[str] = None,
-    is_active: Optional[bool] = True
+    is_active: Optional[bool] = True,
+    sort_by: Optional[str] = "name",
+    sort_order: Optional[str] = "asc"
 ) -> Tuple[List[KnowledgeBaseVulnerability], int]:
     """
-    Get a list of vulnerabilities with pagination and filtering.
+    Get a list of vulnerabilities with pagination, filtering, and sorting.
     Returns (vulnerabilities, total_count)
     """
+    from sqlalchemy import case, desc, asc
+
     query = db.query(KnowledgeBaseVulnerability)
 
     # Apply filters
@@ -126,11 +130,36 @@ def get_vulnerabilities(
     # Get total count
     total = query.count()
 
-    # Apply pagination and ordering
-    vulnerabilities = query.order_by(
-        KnowledgeBaseVulnerability.priority.desc(),
-        KnowledgeBaseVulnerability.created_at.desc()
-    ).offset(skip).limit(limit).all()
+    # Apply sorting
+    sort_column = None
+    if sort_by == "name":
+        sort_column = KnowledgeBaseVulnerability.name
+    elif sort_by == "category":
+        sort_column = KnowledgeBaseVulnerability.category
+    elif sort_by == "severity":
+        # Custom severity order
+        severity_order = case(
+            (KnowledgeBaseVulnerability.severity == 'Critical', 1),
+            (KnowledgeBaseVulnerability.severity == 'High', 2),
+            (KnowledgeBaseVulnerability.severity == 'Medium', 3),
+            (KnowledgeBaseVulnerability.severity == 'Low', 4),
+            (KnowledgeBaseVulnerability.severity == 'Informational', 5),
+            else_=6
+        )
+        sort_column = severity_order
+    elif sort_by == "priority":
+        sort_column = KnowledgeBaseVulnerability.priority
+    else:
+        sort_column = KnowledgeBaseVulnerability.name
+
+    # Apply sort order
+    if sort_order == "desc":
+        query = query.order_by(desc(sort_column))
+    else:
+        query = query.order_by(asc(sort_column))
+
+    # Apply pagination
+    vulnerabilities = query.offset(skip).limit(limit).all()
 
     return vulnerabilities, total
 

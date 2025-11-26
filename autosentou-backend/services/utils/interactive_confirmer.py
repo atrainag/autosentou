@@ -26,6 +26,13 @@ class InteractiveConfirmer:
     4. Execute interactions (click, fill, submit)
     5. Capture final state
     6. Analyze with Gemini: CONFIRMED vs FALSE_POSITIVE
+
+    XSS Testing Workflow:
+    1. Detect input fields on page
+    2. AI generates context-aware XSS payloads (10 payloads)
+    3. Test each payload with Playwright
+    4. Learn from failures to bypass filters
+    5. Confirm execution visually
     """
 
     def __init__(self, timeout: int = 10000):
@@ -37,8 +44,9 @@ class InteractiveConfirmer:
         """
         self.timeout = timeout
         self.ai_service = get_ai_service()
+        self.xss_learning_history = []  # Track what payloads worked/failed
 
-        logger.info("InteractiveConfirmer initialized with Gemini AI")
+        logger.info("InteractiveConfirmer initialized with Gemini AI + XSS testing")
 
     async def confirm_finding(
         self,
@@ -423,6 +431,290 @@ Page Title: {final_state.get('title')}
                 'reasoning': f'Analysis error: {str(e)}',
                 'evidence': {}
             }
+
+    async def test_xss_on_page(
+        self,
+        page: Page,
+        url: str
+    ) -> Dict[str, Any]:
+        """
+        Test page for XSS vulnerabilities with AI-generated context-aware payloads.
+
+        Args:
+            page: Playwright page object
+            url: URL being tested
+
+        Returns:
+            XSS test results with confirmed payloads
+        """
+        result = {
+            'url': url,
+            'input_fields_found': 0,
+            'payloads_tested': 0,
+            'xss_confirmed': False,
+            'successful_payloads': [],
+            'failed_payloads': [],
+            'trace': []
+        }
+
+        try:
+            result['trace'].append(f"[{self._timestamp()}] Starting XSS testing on {url}")
+
+            # Step 1: Detect input fields
+            input_fields = await self._detect_input_fields(page)
+            result['input_fields_found'] = len(input_fields)
+
+            if not input_fields:
+                result['trace'].append(f"[{self._timestamp()}] No input fields found")
+                return result
+
+            result['trace'].append(f"[{self._timestamp()}] Found {len(input_fields)} input field(s)")
+
+            # Test each input field
+            for field_idx, field in enumerate(input_fields[:5], 1):  # Max 5 fields
+                result['trace'].append(f"[{self._timestamp()}] Testing field {field_idx}/{min(len(input_fields), 5)}: {field.get('name', 'unnamed')}")
+
+                # Step 2: AI generates context-aware payloads
+                payloads = await self._generate_xss_payloads(field, page)
+                result['trace'].append(f"[{self._timestamp()}] Generated {len(payloads)} payloads")
+
+                # Step 3: Test each payload
+                for payload_idx, payload in enumerate(payloads, 1):
+                    result['payloads_tested'] += 1
+
+                    result['trace'].append(f"[{self._timestamp()}] Testing payload {payload_idx}/{len(payloads)}: {payload[:50]}...")
+
+                    # Test the payload
+                    xss_detected = await self._test_xss_payload(page, field, payload)
+
+                    if xss_detected:
+                        result['xss_confirmed'] = True
+                        result['successful_payloads'].append({
+                            'field': field.get('name', 'unnamed'),
+                            'payload': payload,
+                            'field_context': field
+                        })
+                        result['trace'].append(f"[{self._timestamp()}] ✓ XSS CONFIRMED!")
+
+                        # Add to learning history
+                        self.xss_learning_history.append({
+                            'payload': payload,
+                            'success': True,
+                            'field_type': field.get('type', 'text'),
+                            'maxlength': field.get('maxlength')
+                        })
+
+                        # Don't test more payloads for this field if we found one that works
+                        break
+                    else:
+                        result['failed_payloads'].append({
+                            'field': field.get('name', 'unnamed'),
+                            'payload': payload
+                        })
+
+                        # Add to learning history
+                        self.xss_learning_history.append({
+                            'payload': payload,
+                            'success': False,
+                            'field_type': field.get('type', 'text'),
+                            'maxlength': field.get('maxlength')
+                        })
+
+                if result['xss_confirmed']:
+                    # Don't test more fields if we already confirmed XSS
+                    break
+
+            result['trace'].append(f"[{self._timestamp()}] XSS testing complete: {'VULNERABLE' if result['xss_confirmed'] else 'SECURE'}")
+
+        except Exception as e:
+            logger.error(f"XSS testing failed: {e}")
+            result['error'] = str(e)
+
+        return result
+
+    async def _detect_input_fields(self, page: Page) -> List[Dict[str, Any]]:
+        """Detect input fields on the page."""
+        fields = []
+
+        try:
+            # Find all input elements
+            inputs = await page.locator('input, textarea').all()
+
+            for inp in inputs[:10]:  # Max 10 fields
+                try:
+                    field_type = await inp.get_attribute('type') or 'text'
+                    field_name = await inp.get_attribute('name') or await inp.get_attribute('id') or 'unnamed'
+                    maxlength = await inp.get_attribute('maxlength')
+                    placeholder = await inp.get_attribute('placeholder') or ''
+
+                    # Skip password and hidden fields
+                    if field_type in ['password', 'hidden', 'submit', 'button']:
+                        continue
+
+                    fields.append({
+                        'selector': f'input[name="{field_name}"]' if field_name != 'unnamed' else 'input',
+                        'name': field_name,
+                        'type': field_type,
+                        'maxlength': int(maxlength) if maxlength and maxlength.isdigit() else None,
+                        'placeholder': placeholder
+                    })
+                except:
+                    pass
+
+        except Exception as e:
+            logger.error(f"Error detecting input fields: {e}")
+
+        return fields
+
+    async def _generate_xss_payloads(
+        self,
+        field: Dict[str, Any],
+        page: Page
+    ) -> List[str]:
+        """
+        Generate context-aware XSS payloads using AI.
+
+        Args:
+            field: Field information
+            page: Playwright page
+
+        Returns:
+            List of 10 XSS payloads
+        """
+        # Get page title for context
+        page_title = await page.title()
+
+        # Build learning context from history
+        learning_context = ""
+        if self.xss_learning_history:
+            successful = [h for h in self.xss_learning_history if h['success']]
+            failed = [h for h in self.xss_learning_history if not h['success']]
+
+            if successful:
+                learning_context += f"\n**Previously successful payloads:**\n"
+                for s in successful[-3:]:  # Last 3 successes
+                    learning_context += f"- {s['payload']} (field type: {s['field_type']})\n"
+
+            if failed:
+                learning_context += f"\n**Previously failed payloads (avoid similar):**\n"
+                for f in failed[-5:]:  # Last 5 failures
+                    learning_context += f"- {f['payload']} (likely filtered)\n"
+
+        prompt = f"""You are an XSS Payload Generator for security testing.
+
+**TARGET FIELD:**
+Name: {field.get('name', 'unnamed')}
+Type: {field.get('type', 'text')}
+Maxlength: {field.get('maxlength', 'unlimited')}
+Placeholder: {field.get('placeholder', 'N/A')}
+Page Title: {page_title}
+
+{learning_context}
+
+**TASK:** Generate 10 context-aware XSS payloads optimized for this field.
+
+**RULES:**
+1. If maxlength is set, payloads MUST fit within that limit
+2. Vary techniques: <script>, <img>, <svg>, event handlers, DOM-based
+3. Include encoding bypass attempts if previous payloads failed
+4. Learn from history: If "script" keyword failed, try alternatives
+5. Prioritize short, effective payloads
+
+**OUTPUT (JSON ONLY):**
+{{
+  "payloads": [
+    "payload1",
+    "payload2",
+    ...
+    "payload10"
+  ],
+  "reasoning": "Why these payloads were chosen for this field"
+}}
+"""
+
+        try:
+            response = self.ai_service.generate(prompt)
+            result = self._parse_json_response(response)
+
+            if result and 'payloads' in result:
+                return result['payloads'][:10]  # Max 10
+            else:
+                # Fallback to basic payloads
+                return self._get_fallback_xss_payloads(field)
+
+        except Exception as e:
+            logger.error(f"AI payload generation failed: {e}")
+            return self._get_fallback_xss_payloads(field)
+
+    def _get_fallback_xss_payloads(self, field: Dict[str, Any]) -> List[str]:
+        """Fallback XSS payloads if AI fails."""
+        maxlength = field.get('maxlength')
+
+        payloads = [
+            '<script>alert(1)</script>',
+            '<img src=x onerror=alert(1)>',
+            '"><script>alert(1)</script>',
+            '<svg onload=alert(1)>',
+            'javascript:alert(1)',
+            '<iframe src=javascript:alert(1)>',
+            '<body onload=alert(1)>',
+            '<img src=x onerror=alert(1)/>',
+            '\'><script>alert(1)</script>',
+            '<svg/onload=alert(1)>'
+        ]
+
+        # Filter by maxlength if set
+        if maxlength:
+            payloads = [p for p in payloads if len(p) <= maxlength]
+
+        return payloads[:10]
+
+    async def _test_xss_payload(
+        self,
+        page: Page,
+        field: Dict[str, Any],
+        payload: str
+    ) -> bool:
+        """
+        Test XSS payload by injecting it and checking for execution.
+
+        Args:
+            page: Playwright page
+            field: Field information
+            payload: XSS payload to test
+
+        Returns:
+            True if XSS confirmed, False otherwise
+        """
+        try:
+            # Set up alert detection
+            alert_fired = False
+
+            def handle_dialog(dialog):
+                nonlocal alert_fired
+                alert_fired = True
+                dialog.dismiss()
+
+            page.on('dialog', handle_dialog)
+
+            # Fill the field with payload
+            selector = field.get('selector', 'input')
+            await page.fill(selector, payload)
+
+            # Trigger by pressing Enter or clicking submit
+            await page.press(selector, 'Enter')
+
+            # Wait a bit for alert
+            await page.wait_for_timeout(1000)
+
+            # Remove handler
+            page.remove_listener('dialog', handle_dialog)
+
+            return alert_fired
+
+        except Exception as e:
+            logger.debug(f"Error testing XSS payload: {e}")
+            return False
 
     def _parse_json_response(self, response: str) -> Optional[Dict[str, Any]]:
         """Parse JSON from Gemini response."""

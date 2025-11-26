@@ -10,7 +10,7 @@
       <!-- Logo/Brand -->
       <div class="p-6 border-b border-gray-800">
         <div class="flex items-center space-x-3">
-          <div class="text-3xl">🛡️</div>
+          <ShieldCheckIcon class="w-8 h-8 text-cyber-cyan" />
           <div>
             <h1 class="text-xl font-bold text-white neon-glow">Autosentou</h1>
             <p class="text-xs text-gray-400">Automated Pentesting</p>
@@ -36,7 +36,7 @@
                 : 'text-gray-400 hover:text-white hover:bg-cyber-darker'
             ]"
           >
-            <span class="text-xl">{{ route.meta.icon }}</span>
+            <component :is="getIconComponent(route.meta.icon)" class="w-6 h-6" />
             <span class="font-medium">{{ route.meta.title }}</span>
           </a>
         </router-link>
@@ -114,20 +114,43 @@ import { useAppStore } from './stores/app'
 import { useJobsStore } from './stores/jobs'
 import { healthApi } from './services/api'
 import NotificationToast from './components/common/NotificationToast.vue'
-import { Bars3Icon } from '@heroicons/vue/24/outline'
+import {
+  Bars3Icon,
+  ChartBarIcon,
+  RocketLaunchIcon,
+  ClipboardDocumentListIcon,
+  BeakerIcon,
+  DocumentTextIcon,
+  BookOpenIcon,
+  ShieldCheckIcon
+} from '@heroicons/vue/24/outline'
 
 const router = useRouter()
 const appStore = useAppStore()
 const jobsStore = useJobsStore()
 
+// Icon mapping
+const iconMap = {
+  'chart-bar': ChartBarIcon,
+  'rocket-launch': RocketLaunchIcon,
+  'clipboard-document-list': ClipboardDocumentListIcon,
+  'beaker': BeakerIcon,
+  'document-text': DocumentTextIcon,
+  'book-open': BookOpenIcon
+}
+
+const getIconComponent = (iconName) => {
+  return iconMap[iconName] || ChartBarIcon
+}
+
 // Main navigation routes
 const mainRoutes = [
-  { path: '/', meta: { title: 'Dashboard', icon: '📊' } },
-  { path: '/scan/create', meta: { title: 'New Scan', icon: '🚀' } },
-  { path: '/jobs', meta: { title: 'Jobs', icon: '📋' } },
-  { path: '/phase-testing', meta: { title: 'Phase Testing', icon: '🧪' } },
-  { path: '/wordlists', meta: { title: 'Wordlists', icon: '📝' } },
-  { path: '/knowledge-base', meta: { title: 'Knowledge Base', icon: '🧠' } },
+  { path: '/', meta: { title: 'Dashboard', icon: 'chart-bar' } },
+  { path: '/scan/create', meta: { title: 'New Scan', icon: 'rocket-launch' } },
+  { path: '/jobs', meta: { title: 'Jobs', icon: 'clipboard-document-list' } },
+  { path: '/phase-testing', meta: { title: 'Phase Testing', icon: 'beaker' } },
+  { path: '/wordlists', meta: { title: 'Wordlists', icon: 'document-text' } },
+  { path: '/knowledge-base', meta: { title: 'Knowledge Base', icon: 'book-open' } },
 ]
 
 const navigateTo = (path) => {

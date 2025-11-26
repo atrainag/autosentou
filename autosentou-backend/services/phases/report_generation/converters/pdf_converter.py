@@ -1,18 +1,104 @@
 """
-PDF Converter using WeasyPrint
+PDF Converter using Playwright (Chrome)
 
-Converts HTML reports to PDF format with proper styling.
+Converts HTML reports to PDF format with full CSS support including:
+- Flexbox layouts
+- Custom colors and backgrounds
+- Modern CSS features
+- Page break controls
+
+Falls back to WeasyPrint if Playwright is unavailable.
 """
 
 import os
-from typing import Optional
-from weasyprint import HTML, CSS
-from weasyprint.text.fonts import FontConfiguration
+from typing import Optional, Dict
 
 
-def convert_html_to_pdf(html_content: str, output_path: str) -> bool:
+def convert_html_to_pdf_playwright(html_content: str, output_path: str,
+                                   custom_margins: Optional[Dict[str, str]] = None) -> bool:
     """
-    Convert HTML content to PDF using WeasyPrint.
+    Convert HTML to PDF using Playwright (Chromium).
+
+    Provides full CSS support including flexbox, modern layouts, colors, etc.
+
+    Args:
+        html_content: HTML string to convert
+        output_path: Path where PDF should be saved
+        custom_margins: Optional custom margins dict (top, right, bottom, left)
+
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        print("⚠ Playwright not installed. Attempting WeasyPrint fallback...")
+        return convert_html_to_pdf_weasyprint(html_content, output_path)
+
+    try:
+        # Default margins
+        if custom_margins is None:
+            custom_margins = {
+                'top': '1.5cm',
+                'right': '2cm',
+                'bottom': '1.5cm',
+                'left': '2cm'
+            }
+
+        with sync_playwright() as p:
+            # Launch Chromium browser
+            browser = p.chromium.launch()
+            page = browser.new_page()
+
+            # Set HTML content
+            page.set_content(html_content, wait_until='networkidle')
+
+            # Generate PDF with proper settings
+            page.pdf(
+                path=output_path,
+                format='A4',
+                print_background=True,  # CRITICAL: Enable background colors/images
+                margin=custom_margins,
+                prefer_css_page_size=False,
+                display_header_footer=False,
+            )
+
+            browser.close()
+
+        print(f"✓ PDF generated successfully (Playwright): {output_path}")
+        return True
+
+    except Exception as e:
+        print(f"✗ Playwright PDF conversion failed: {str(e)}")
+        print("   Attempting WeasyPrint fallback...")
+        return convert_html_to_pdf_weasyprint(html_content, output_path)
+
+
+def convert_html_to_pdf(html_content: str, output_path: str, use_playwright: bool = True,
+                        custom_margins: Optional[Dict[str, str]] = None) -> bool:
+    """
+    Convert HTML to PDF (main entry point).
+
+    Uses Playwright by default for full CSS support, falls back to WeasyPrint if needed.
+
+    Args:
+        html_content: HTML string to convert
+        output_path: Path where PDF should be saved
+        use_playwright: Use Playwright if available (default: True)
+        custom_margins: Optional custom margins
+
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    if use_playwright:
+        return convert_html_to_pdf_playwright(html_content, output_path, custom_margins)
+    else:
+        return convert_html_to_pdf_weasyprint(html_content, output_path)
+
+
+def convert_html_to_pdf_weasyprint(html_content: str, output_path: str) -> bool:
+    """
+    Convert HTML content to PDF using WeasyPrint (fallback/legacy).
 
     Args:
         html_content: HTML string to convert
@@ -21,6 +107,13 @@ def convert_html_to_pdf(html_content: str, output_path: str) -> bool:
     Returns:
         bool: True if successful, False otherwise
     """
+    try:
+        from weasyprint import HTML, CSS
+        from weasyprint.text.fonts import FontConfiguration
+    except ImportError:
+        print("✗ WeasyPrint not installed. Cannot convert to PDF.")
+        return False
+
     try:
         # Create font configuration
         font_config = FontConfiguration()
@@ -268,10 +361,10 @@ def convert_markdown_to_pdf(markdown_content: str, output_path: str, title: str 
     """
     try:
         from .html_converter import convert_markdown_to_html
-        
+
         # Convert markdown to HTML first
         html_content = convert_markdown_to_html(markdown_content, title)
-        
+
         # Convert HTML to PDF
         return convert_html_to_pdf(html_content, output_path)
     except Exception as e:

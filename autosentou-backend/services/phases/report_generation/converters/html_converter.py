@@ -1,186 +1,62 @@
 """
 HTML Converter
 
-Converts markdown to clean, simple HTML with black and white styling.
+Converts markdown (with embedded HTML/CSS) to complete HTML documents.
+Supports full HTML passthrough and custom CSS themes.
 """
 
-import markdown2
+import markdown
 from typing import Optional
+from ..report_theme import get_professional_theme_css, get_minimal_black_white_theme
 
 
-def convert_markdown_to_html(markdown_content: str, title: str = "Penetration Testing Report") -> str:
+def convert_markdown_to_html(markdown_content: str, title: str = "Penetration Testing Report",
+                             use_professional_theme: bool = True) -> str:
     """
-    Convert markdown content to clean HTML with simple black and white styling.
+    Convert markdown content to HTML with professional styling.
+
+    Supports:
+    - Full HTML passthrough (embedded HTML in markdown)
+    - Custom CSS themes
+    - Styled tables with colors
+    - Flexbox TOC
+    - Page break divs
 
     Args:
-        markdown_content: Markdown string to convert
+        markdown_content: Markdown string to convert (may contain HTML)
         title: HTML page title
+        use_professional_theme: Use professional CSS theme (default: True)
 
     Returns:
         str: Complete HTML document
     """
-    # Convert markdown to HTML
-    html_body = markdown2.markdown(
+    # Convert markdown to HTML using markdown library (supports HTML passthrough)
+    html_body = markdown.markdown(
         markdown_content,
-        extras=['tables', 'fenced-code-blocks', 'header-ids', 'toc']
+        extensions=[
+            'extra',           # Tables, fenced code, etc.
+            'codehilite',      # Syntax highlighting
+            'tables',          # Table support
+            'fenced_code',     # Fenced code blocks
+            'nl2br',           # Newline to <br>
+            'sane_lists',      # Better list handling
+        ]
     )
 
-    # Simple, clean HTML template with black & white styling
+    # Get CSS theme
+    if use_professional_theme:
+        css_theme = get_professional_theme_css()
+    else:
+        css_theme = get_minimal_black_white_theme()
+
+    # Create complete HTML document
     html_template = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{title}</title>
-    <style>
-        body {{
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            line-height: 1.6;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-            color: #333;
-            background: #fff;
-        }}
-
-        h1 {{
-            color: #000;
-            border-bottom: 3px solid #000;
-            padding-bottom: 10px;
-            margin-top: 0;
-        }}
-
-        h2 {{
-            color: #000;
-            border-bottom: 2px solid #666;
-            padding-bottom: 8px;
-            margin-top: 40px;
-        }}
-
-        h3 {{
-            color: #333;
-            margin-top: 30px;
-        }}
-
-        h4 {{
-            color: #555;
-            margin-top: 20px;
-        }}
-
-        table {{
-            width: 100%;
-            border-collapse: collapse;
-            margin: 20px 0;
-            background: #fff;
-        }}
-
-        table thead {{
-            background: #000;
-            color: #fff;
-        }}
-
-        table th {{
-            padding: 12px;
-            text-align: left;
-            font-weight: 600;
-            border: 1px solid #000;
-        }}
-
-        table td {{
-            padding: 10px;
-            border: 1px solid #ddd;
-        }}
-
-        table tbody tr:nth-child(even) {{
-            background: #f9f9f9;
-        }}
-
-        code {{
-            background: #f4f4f4;
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-family: 'Courier New', Consolas, monospace;
-            font-size: 0.9em;
-            color: #000;
-        }}
-
-        pre {{
-            background: #f4f4f4;
-            padding: 15px;
-            border-left: 4px solid #000;
-            overflow-x: auto;
-            font-size: 0.9em;
-        }}
-
-        pre code {{
-            background: transparent;
-            padding: 0;
-        }}
-
-        hr {{
-            border: none;
-            border-top: 1px solid #ddd;
-            margin: 40px 0;
-        }}
-
-        ul, ol {{
-            margin: 15px 0;
-            padding-left: 30px;
-        }}
-
-        li {{
-            margin: 8px 0;
-        }}
-
-        a {{
-            color: #000;
-            text-decoration: underline;
-        }}
-
-        a:hover {{
-            color: #666;
-        }}
-
-        blockquote {{
-            border-left: 4px solid #000;
-            padding-left: 15px;
-            margin: 20px 0;
-            color: #666;
-            font-style: italic;
-        }}
-
-        strong {{
-            font-weight: 600;
-            color: #000;
-        }}
-
-        .page-break {{
-            page-break-after: always;
-        }}
-
-        img {{
-            max-width: 100%;
-            height: auto;
-            display: block;
-            margin: 15px auto;
-            border: 1px solid #ccc;
-        }}
-
-        @media print {{
-            body {{
-                max-width: 100%;
-                padding: 0;
-            }}
-
-            h2 {{
-                page-break-after: avoid;
-            }}
-
-            table {{
-                page-break-inside: avoid;
-            }}
-        }}
-    </style>
+    {css_theme}
 </head>
 <body>
     {html_body}

@@ -61,6 +61,12 @@ export const jobsApi = {
     const response = await api.delete(`/job/${jobId}`)
     return response.data
   },
+
+  // Get total findings count across all jobs
+  getTotalFindingsCount: async () => {
+    const response = await api.get('/findings/total-count')
+    return response.data
+  },
 }
 
 export const wordlistsApi = {
@@ -213,6 +219,24 @@ export const knowledgeBaseApi = {
   // Get uncategorized findings
   getUncategorizedFindings: async (params = {}) => {
     const response = await api.get('/knowledge-base/uncategorized-findings', { params })
+    return response.data
+  },
+
+  // Get categorized findings
+  getCategorizedFindings: async (params = {}) => {
+    const response = await api.get('/knowledge-base/categorized-findings', { params })
+    return response.data
+  },
+
+  // Get available categories
+  getAvailableCategories: async () => {
+    const response = await api.get('/knowledge-base/available-categories')
+    return response.data
+  },
+
+  // Get available finding types
+  getAvailableFindingTypes: async () => {
+    const response = await api.get('/knowledge-base/available-finding-types')
     return response.data
   },
 }

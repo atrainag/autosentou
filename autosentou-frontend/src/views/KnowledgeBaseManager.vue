@@ -2,16 +2,21 @@
   <div class="space-y-6">
     <!-- Header -->
     <div class="flex items-center justify-between">
-      <div>
-        <h1 class="text-3xl font-bold text-white">🧠 Knowledge Base</h1>
-        <p class="text-gray-400 mt-1">Manage vulnerability knowledge for intelligent categorization</p>
+      <div class="flex items-center space-x-3">
+        <BookOpenIcon class="w-8 h-8 text-cyber-cyan" />
+        <div>
+          <h1 class="text-3xl font-bold text-white">Knowledge Base</h1>
+          <p class="text-gray-400 mt-1">Manage vulnerability knowledge for intelligent categorization</p>
+        </div>
       </div>
       <div class="flex items-center space-x-3">
-        <button @click="handleExport" class="btn-secondary" :disabled="kbStore.loading">
-          📤 Export
+        <button @click="handleExport" class="btn-secondary flex items-center space-x-2" :disabled="kbStore.loading">
+          <ArrowUpTrayIcon class="w-5 h-5" />
+          <span>Export</span>
         </button>
-        <button @click="showAddModal = true" class="btn-primary">
-          ➕ Add Vulnerability
+        <button @click="showAddModal = true" class="btn-primary flex items-center space-x-2">
+          <PlusCircleIcon class="w-5 h-5" />
+          <span>Add Vulnerability</span>
         </button>
       </div>
     </div>
@@ -19,25 +24,25 @@
     <!-- Statistics Cards -->
     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
       <StatCard
-        icon="📊"
+        icon="chart-bar"
         :value="kbStore.stats?.total_active_vulnerabilities || 0"
         label="Total Vulnerabilities"
         color="cyan"
       />
       <StatCard
-        icon="✅"
+        icon="check-circle"
         :value="kbStore.stats?.linked_findings || 0"
         label="Categorized Findings"
         color="green"
       />
       <StatCard
-        icon="❓"
+        icon="exclamation-triangle"
         :value="kbStore.stats?.uncategorized_findings || 0"
         label="Uncategorized Findings"
         color="yellow"
       />
       <StatCard
-        icon="⚙️"
+        icon="clock"
         :value="(kbStore.similarityThreshold * 100).toFixed(0) + '%'"
         label="Match Threshold"
         color="purple"
@@ -50,25 +55,46 @@
         <button
           @click="activeTab = 'vulnerabilities'"
           :class="[
-            'px-6 py-4 font-medium transition-colors',
+            'px-6 py-4 font-medium transition-colors flex items-center space-x-2',
             activeTab === 'vulnerabilities'
               ? 'text-cyber-cyan border-b-2 border-cyber-cyan'
               : 'text-gray-400 hover:text-white'
           ]"
         >
-          📚 Vulnerabilities
+          <BookOpenIcon class="w-5 h-5" />
+          <span>Vulnerabilities</span>
           <span class="ml-2 text-sm">({{ kbStore.pagination.total }})</span>
+        </button>
+        <button
+          @click="activeTab = 'categorized'"
+          :class="[
+            'px-6 py-4 font-medium transition-colors flex items-center space-x-2',
+            activeTab === 'categorized'
+              ? 'text-cyber-cyan border-b-2 border-cyber-cyan'
+              : 'text-gray-400 hover:text-white'
+          ]"
+        >
+          <CheckCircleIcon class="w-5 h-5" />
+          <span>Categorized Findings</span>
+          <span
+            v-if="kbStore.categorizedFindings > 0"
+            class="ml-2 text-sm bg-green-900/50 text-green-300 px-2 py-0.5 rounded"
+          >
+            {{ kbStore.categorizedFindings }}
+          </span>
+          <span v-else class="ml-2 text-sm">(0)</span>
         </button>
         <button
           @click="activeTab = 'uncategorized'"
           :class="[
-            'px-6 py-4 font-medium transition-colors',
+            'px-6 py-4 font-medium transition-colors flex items-center space-x-2',
             activeTab === 'uncategorized'
               ? 'text-cyber-cyan border-b-2 border-cyber-cyan'
               : 'text-gray-400 hover:text-white'
           ]"
         >
-          ❓ Uncategorized Findings
+          <ExclamationTriangleIcon class="w-5 h-5" />
+          <span>Uncategorized Findings</span>
           <span
             v-if="kbStore.uncategorizedFindings > 0"
             class="ml-2 text-sm bg-yellow-900/50 text-yellow-300 px-2 py-0.5 rounded"
@@ -87,8 +113,9 @@
       <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
         <!-- Search -->
         <div class="md:col-span-2">
-          <label class="block text-sm font-medium text-gray-300 mb-2">
-            🔍 Search
+          <label class="block text-sm font-medium text-gray-300 mb-2 flex items-center space-x-2">
+            <MagnifyingGlassIcon class="w-4 h-4" />
+            <span>Search</span>
           </label>
           <input
             v-model="searchQuery"
@@ -101,23 +128,23 @@
 
         <!-- Category Filter -->
         <div>
-          <label class="block text-sm font-medium text-gray-300 mb-2">
-            📂 Category
+          <label class="block text-sm font-medium text-gray-300 mb-2 flex items-center space-x-2">
+            <FolderIcon class="w-4 h-4" />
+            <span>Category</span>
           </label>
           <select v-model="categoryFilter" @change="handleFilterChange" class="input-field">
             <option :value="null">All Categories</option>
-            <option value="Web">Web</option>
-            <option value="Network">Network</option>
-            <option value="Auth">Authentication</option>
-            <option value="API">API</option>
-            <option value="Mobile">Mobile</option>
+            <option v-for="category in kbStore.availableCategories" :key="category" :value="category">
+              {{ category }}
+            </option>
           </select>
         </div>
 
         <!-- Severity Filter -->
         <div>
-          <label class="block text-sm font-medium text-gray-300 mb-2">
-            ⚠️ Severity
+          <label class="block text-sm font-medium text-gray-300 mb-2 flex items-center space-x-2">
+            <ShieldExclamationIcon class="w-4 h-4" />
+            <span>Severity</span>
           </label>
           <select v-model="severityFilter" @change="handleFilterChange" class="input-field">
             <option :value="null">All Severities</option>
@@ -170,36 +197,63 @@
       <!-- Empty State -->
       <div v-else-if="kbStore.vulnerabilities.length === 0" class="p-6">
         <EmptyState
-          icon="🧠"
           title="No vulnerabilities found"
           description="Add your first vulnerability to the knowledge base or adjust your filters"
-        />
+        >
+          <template #icon>
+            <BookOpenIcon class="w-16 h-16 mx-auto text-gray-600" />
+          </template>
+        </EmptyState>
       </div>
 
       <!-- Table -->
       <div v-else class="overflow-x-auto">
-        <table class="w-full">
+        <table class="w-full table-fixed">
           <thead class="bg-cyber-dark border-b border-gray-800">
             <tr>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                Name
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-1/4">
+                <SortableTableHeader
+                  label="Name"
+                  column="name"
+                  :current-sort="sortBy"
+                  :current-order="sortOrder"
+                  @sort="handleSort"
+                />
               </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                Category
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-28">
+                <SortableTableHeader
+                  label="Category"
+                  column="category"
+                  :current-sort="sortBy"
+                  :current-order="sortOrder"
+                  @sort="handleSort"
+                />
               </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                Severity
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-28">
+                <SortableTableHeader
+                  label="Severity"
+                  column="severity"
+                  :current-sort="sortBy"
+                  :current-order="sortOrder"
+                  @sort="handleSort"
+                />
               </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-32">
                 OWASP Top 10
               </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-32">
                 CVE / CWE
               </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                Priority
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-24">
+                <SortableTableHeader
+                  label="Priority"
+                  column="priority"
+                  :current-sort="sortBy"
+                  :current-order="sortOrder"
+                  @sort="handleSort"
+                />
               </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-28">
                 Actions
               </th>
             </tr>
@@ -259,24 +313,24 @@
                 <div class="flex items-center space-x-2">
                   <button
                     @click="handleView(vuln)"
-                    class="text-cyber-cyan hover:text-cyan-300 text-sm"
+                    class="text-cyber-cyan hover:text-cyan-300"
                     title="View Details"
                   >
-                    👁️
+                    <EyeIcon class="w-5 h-5" />
                   </button>
                   <button
                     @click="handleEdit(vuln)"
-                    class="text-blue-400 hover:text-blue-300 text-sm"
+                    class="text-blue-400 hover:text-blue-300"
                     title="Edit"
                   >
-                    ✏️
+                    <PencilSquareIcon class="w-5 h-5" />
                   </button>
                   <button
                     @click="handleDelete(vuln)"
-                    class="text-red-400 hover:text-red-300 text-sm"
+                    class="text-red-400 hover:text-red-300"
                     title="Delete"
                   >
-                    🗑️
+                    <TrashIcon class="w-5 h-5" />
                   </button>
                 </div>
               </td>
@@ -315,6 +369,11 @@
         </div>
       </div>
     </div>
+    </div>
+
+    <!-- Categorized Findings Tab Content -->
+    <div v-show="activeTab === 'categorized'">
+      <CategorizedFindingsTable />
     </div>
 
     <!-- Uncategorized Findings Tab Content -->
@@ -360,10 +419,25 @@ import LoadingSpinner from '../components/common/LoadingSpinner.vue'
 import EmptyState from '../components/common/EmptyState.vue'
 import StatCard from '../components/dashboard/StatCard.vue'
 import SeverityBadge from '../components/common/SeverityBadge.vue'
+import SortableTableHeader from '../components/common/SortableTableHeader.vue'
 import VulnerabilityFormModal from '../components/knowledge-base/VulnerabilityFormModal.vue'
 import UncategorizedFindingsTable from '../components/knowledge-base/UncategorizedFindingsTable.vue'
+import CategorizedFindingsTable from '../components/knowledge-base/CategorizedFindingsTable.vue'
 import ConfirmDialog from '../components/common/ConfirmDialog.vue'
 import NotificationToast from '../components/common/NotificationToast.vue'
+import {
+  BookOpenIcon,
+  ArrowUpTrayIcon,
+  PlusCircleIcon,
+  ExclamationTriangleIcon,
+  CheckCircleIcon,
+  MagnifyingGlassIcon,
+  FolderIcon,
+  ShieldExclamationIcon,
+  EyeIcon,
+  PencilSquareIcon,
+  TrashIcon
+} from '@heroicons/vue/24/outline'
 
 const route = useRoute()
 const kbStore = useKnowledgeBaseStore()
@@ -379,6 +453,8 @@ const showDeleteConfirm = ref(false)
 const editingVulnerability = ref(null)
 const deletingVulnerability = ref(null)
 const notification = ref({ show: false, type: 'success', message: '' })
+const sortBy = ref('name')
+const sortOrder = ref('asc')
 
 // Computed
 const hasActiveFilters = computed(() => {
@@ -395,11 +471,32 @@ const debouncedSearch = () => {
 }
 
 // Methods
+const handleSort = (column) => {
+  if (sortBy.value === column) {
+    // Toggle sort order
+    sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    // New column, default to ascending for name, descending for others
+    sortBy.value = column
+    sortOrder.value = column === 'name' ? 'asc' : 'desc'
+  }
+
+  kbStore.setFilters({
+    search: searchQuery.value,
+    category: categoryFilter.value,
+    severity: severityFilter.value,
+    sort_by: sortBy.value,
+    sort_order: sortOrder.value,
+  })
+}
+
 const handleFilterChange = () => {
   kbStore.setFilters({
     search: searchQuery.value,
     category: categoryFilter.value,
     severity: severityFilter.value,
+    sort_by: sortBy.value,
+    sort_order: sortOrder.value,
   })
 }
 
@@ -484,6 +581,8 @@ onMounted(async () => {
     kbStore.fetchVulnerabilities(),
     kbStore.fetchStats(),
     kbStore.fetchSimilarityThreshold(),
+    kbStore.fetchAvailableCategories(),
+    kbStore.fetchAvailableFindingTypes(),
   ])
 })
 </script>

@@ -62,6 +62,7 @@ export const getStatusColor = (status) => {
     running: 'bg-blue-600 text-white',
     pending: 'bg-yellow-600 text-white',
     completed: 'bg-green-600 text-white',
+    success: 'bg-green-600 text-white',
     failed: 'bg-red-600 text-white',
     cancelled: 'bg-gray-600 text-white',
     suspended: 'bg-yellow-500 text-black',
@@ -76,7 +77,8 @@ export const getStatusText = (status) => {
   const texts = {
     running: 'Running',
     pending: 'Pending',
-    completed: 'Completed',
+    completed: 'Success',
+    success: 'Success',
     failed: 'Failed',
     cancelled: 'Cancelled',
     suspended: 'Suspended',

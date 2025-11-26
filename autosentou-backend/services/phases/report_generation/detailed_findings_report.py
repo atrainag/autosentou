@@ -60,7 +60,10 @@ def generate_detailed_findings_report(job: Job, phases_data: Dict[str, Any], db_
 
     # Header
     lines.append("# Penetration Testing Report - Detailed Findings\n\n")
-    lines.append(f"**Target:** {job.target}\n\n")
+    if job.original_target and job.original_target != job.target:
+        lines.append(f"**Target:** {job.original_target} (IP: {job.target})\n\n")
+    else:
+        lines.append(f"**Target:** {job.target}\n\n")
     lines.append(f"**Report Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
     lines.append(f"**Job ID:** {job.id}\n\n")
     lines.append("**Classification:** Confidential\n\n")

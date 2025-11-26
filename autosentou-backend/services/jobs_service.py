@@ -576,12 +576,45 @@ def _background_scan_thread(job_id: str, target: str):
 
 # Public API
 def start_scan(target: str, description: Optional[str] = None, scan_config: Optional[Any] = None, custom_wordlist: Optional[str] = None) -> str:
+    import socket
+    from urllib.parse import urlparse
+
     logger.info(f"start_scan called - Target: {target}, Wordlist: {custom_wordlist or 'default'}")
 
+    # Store original target for display
+    original_target = target
+    scan_target = target  # This will be the IP we use for scanning
+
+    # Extract hostname from URL if needed
+    if target.startswith(('http://', 'https://')):
+        parsed = urlparse(target)
+        hostname = parsed.hostname
+        logger.info(f"Extracted hostname from URL: {hostname}")
+    else:
+        # Remove port if specified (e.g., "example.com:8080" -> "example.com")
+        hostname = target.split(':')[0] if ':' in target else target
+
     # Check for localhost
-    if target.lower() in ['localhost', '127.0.0.1', '::1']:
-        logger.info(f"Target {target} detected as localhost, normalizing to 127.0.0.1")
-        target = '127.0.0.1'
+    if hostname.lower() in ['localhost', '127.0.0.1', '::1']:
+        logger.info(f"Target {hostname} detected as localhost, normalizing to 127.0.0.1")
+        scan_target = '127.0.0.1'
+    else:
+        # Try to resolve domain to IP
+        try:
+            from services.utils.connectivity_check import is_valid_ip
+
+            if is_valid_ip(hostname):
+                # Target is already an IP
+                scan_target = hostname
+                logger.info(f"Target is already an IP address: {hostname}")
+            else:
+                # Target is a domain, resolve it
+                scan_target = socket.gethostbyname(hostname)
+                logger.info(f"Resolved domain {hostname} to IP: {scan_target}")
+        except socket.gaierror as e:
+            logger.warning(f"Could not resolve domain {hostname}: {str(e)}")
+            # Will use original target if resolution fails
+            scan_target = hostname
 
     db = SessionLocal()
     try:
@@ -590,8 +623,9 @@ def start_scan(target: str, description: Optional[str] = None, scan_config: Opti
 
         job = Job(
             id=job_id,
-            description=description or f"Scan for {target}",
-            target=target,
+            description=description or f"Scan for {original_target}",
+            target=scan_target,  # Store IP for scanning
+            original_target=original_target,  # Store original input for display
             status="running",
             phase="Initializing",
             phase_desc="Starting scan...",
@@ -602,11 +636,12 @@ def start_scan(target: str, description: Optional[str] = None, scan_config: Opti
         db.add(job)
         db.commit()
         db.refresh(job)
-        logger.info(f"Job {job_id} created in database with status: {job.status}")
+        logger.info(f"Job {job_id} created in database - Original: {original_target}, Scan Target (IP): {scan_target}")
 
         logger.info(f"Starting background scan thread for job {job_id}")
+        # Pass the scan target (IP) for all scanning operations
         thread = threading.Thread(
-            target=_background_scan_thread, args=(job_id, target), daemon=True
+            target=_background_scan_thread, args=(job_id, scan_target), daemon=True
         )
         thread.start()
         logger.info(f"Background thread started for job {job_id}")

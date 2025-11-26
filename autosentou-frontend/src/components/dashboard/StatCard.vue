@@ -6,9 +6,7 @@
         <p class="text-3xl font-bold text-white">{{ value }}</p>
         <p v-if="subtitle" class="text-xs text-gray-500 mt-1">{{ subtitle }}</p>
       </div>
-      <div :class="['text-4xl', iconColor]">
-        {{ icon }}
-      </div>
+      <component :is="iconComponent" :class="['w-12 h-12', iconColor]" />
     </div>
     <div v-if="trend" class="mt-4 flex items-center text-sm">
       <span :class="[trendColor]">{{ trend }}</span>
@@ -18,6 +16,16 @@
 
 <script setup>
 import { computed } from 'vue'
+import {
+  ChartBarIcon,
+  ArrowPathIcon,
+  CheckCircleIcon,
+  ExclamationTriangleIcon,
+  ShieldCheckIcon,
+  BoltIcon,
+  ClockIcon,
+  DocumentTextIcon
+} from '@heroicons/vue/24/outline'
 
 const props = defineProps({
   label: {
@@ -30,7 +38,7 @@ const props = defineProps({
   },
   icon: {
     type: String,
-    default: '📊',
+    default: 'chart-bar',
   },
   iconColor: {
     type: String,
@@ -44,6 +52,21 @@ const props = defineProps({
     type: String,
     default: '',
   },
+})
+
+const iconMap = {
+  'chart-bar': ChartBarIcon,
+  'arrow-path': ArrowPathIcon,
+  'check-circle': CheckCircleIcon,
+  'exclamation-triangle': ExclamationTriangleIcon,
+  'shield-check': ShieldCheckIcon,
+  'bolt': BoltIcon,
+  'clock': ClockIcon,
+  'document-text': DocumentTextIcon
+}
+
+const iconComponent = computed(() => {
+  return iconMap[props.icon] || ChartBarIcon
 })
 
 const trendColor = computed(() => {

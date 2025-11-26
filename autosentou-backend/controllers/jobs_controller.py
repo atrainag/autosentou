@@ -392,6 +392,27 @@ def get_all_jobs_endpoint(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Error retrieving jobs: {str(e)}")
 
 
+@router.get("/findings/total-count")
+def get_total_findings_count(db: Session = Depends(get_db)):
+    """
+    Get total count of all findings across all jobs.
+
+    Returns:
+        Dictionary with total_findings count
+    """
+    logger.info("Received request to get total findings count")
+    try:
+        from sqlalchemy import func
+
+        total = db.query(func.count(Finding.id)).scalar() or 0
+        logger.info(f"Total findings count: {total}")
+
+        return {"total_findings": total}
+    except Exception as e:
+        logger.error(f"Error getting total findings count: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting total findings count: {str(e)}")
+
+
 @router.post("/job/{job_id}/cancel")
 def cancel_scan_endpoint(job_id: str, db: Session = Depends(get_db)):
     """

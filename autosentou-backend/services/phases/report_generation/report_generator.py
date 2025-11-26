@@ -1,8 +1,11 @@
 """
-Report Generator V2 - Clean and Dynamic
+Report Generator V3 - Professional Styled Reports
 
-Generates reports with proper section numbering and clean formatting.
-All sections are collected first, then TOC is generated dynamically.
+Generates reports with:
+- Professional HTML/CSS styling
+- Intelligent page break management
+- Styled Table of Contents with accurate page numbers
+- Full Playwright PDF and python-docx DOCX support
 """
 
 import os
@@ -26,6 +29,8 @@ from .appendix import generate_appendix_section
 from .converters import convert_markdown_to_html, convert_html_to_pdf, convert_markdown_to_docx
 from .detailed_findings_report import generate_detailed_findings_report
 from .rag_remediation import enhance_finding_with_rag
+from .page_break_manager import PageBreakManager
+from .toc_calculator import TOCCalculator
 
 
 class ReportSection:
@@ -38,12 +43,22 @@ class ReportSection:
 
 
 class ReportGenerator:
-    """Dynamic report generator with proper section numbering."""
+    """
+    Professional report generator with styled output.
+
+    Features:
+    - HTML/CSS styled tables and content
+    - Intelligent page break insertion
+    - Styled TOC with accurate page numbers
+    - Playwright PDF + python-docx DOCX
+    """
 
     def __init__(self, job: Job, phases_data: Dict[str, Any]):
         self.job = job
         self.phases_data = phases_data
         self.sections: List[ReportSection] = []
+        self.page_break_manager = PageBreakManager()
+        self.toc_calculator = TOCCalculator(base_page=1)
 
     def collect_sections(self):
         """Collect all sections that should be included in the report."""
@@ -225,7 +240,10 @@ class ReportGenerator:
 
         # 2.2 Target Information
         lines.append("### Target Information\n\n")
-        lines.append(f"- **Target**: {self.job.target}\n")
+        if self.job.original_target and self.job.original_target != self.job.target:
+            lines.append(f"- **Target**: {self.job.original_target} (IP: {self.job.target})\n")
+        else:
+            lines.append(f"- **Target**: {self.job.target}\n")
         lines.append(f"- **Target Type**: {'Local/Private Network' if is_local_target else 'Public/External Network'}\n")
         lines.append(f"- **Scan Type**: Comprehensive\n\n")
 
@@ -283,33 +301,100 @@ class ReportGenerator:
         return content
 
     def generate_markdown(self) -> str:
-        """Generate complete markdown report."""
+        """
+        Generate complete markdown report with styled HTML, TOC, and page breaks.
+
+        Steps:
+        1. Generate header with confidentiality notice
+        2. Build TOC entries (without page numbers yet)
+        3. Generate all sections
+        4. Process page breaks
+        5. Calculate TOC page numbers
+        6. Insert final styled TOC
+        7. Return complete report
+        """
         lines = []
 
-        # Header
-        lines.append("# Penetration Testing Report\n\n")
+        # 0. Title and Metadata
+        lines.append("# Penetration Testing Report - Detailed Findings\n\n")
         lines.append(f"**Target:** {self.job.target}\n\n")
         lines.append(f"**Report Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
         lines.append(f"**Job ID:** {self.job.id}\n\n")
+        lines.append(f"**Classification:** Confidential\n\n")
         lines.append("---\n\n")
 
-        # Table of Contents
-        toc = self.generate_table_of_contents()
-        lines.append(toc)
+        # 1. Confidentiality Notice
+        lines.append("## Confidentiality Notice\n\n")
+        lines.append("This document is marked as **CONFIDENTIAL** and contains sensitive information about ")
+        lines.append("network architecture, system configurations, and security vulnerabilities. ")
+        lines.append("This report is intended solely for internal security risk management assessment. ")
+        lines.append("Unauthorized disclosure, copying, or distribution of this document may constitute ")
+        lines.append("a breach of confidentiality and may result in legal action.\n\n")
         lines.append("---\n\n")
 
-        # Add all sections with proper numbering
+        # Page break after confidentiality notice
+        lines.append(self.page_break_manager.create_page_break())
+
+        # 2. Build TOC entries for all sections (page numbers calculated later)
         for section in self.sections:
-            # Section header
-            anchor = section.title.lower().replace(' ', '-').replace('&', 'and')
-            lines.append(f"## {section.number}. {section.title}\n\n")
+            section_id = f"section{section.number}"
+            is_subsection = False
+
+            # Add main section to TOC
+            self.toc_calculator.add_entry(
+                str(section.number),
+                section.title,
+                section_id,
+                is_subsection=False
+            )
+
+            # Add subsections to TOC
+            for sub_idx, subsection in enumerate(section.subsections, 1):
+                subsection_id = f"section{section.number}-{sub_idx}"
+                self.toc_calculator.add_entry(
+                    f"{section.number}.{sub_idx}",
+                    subsection,
+                    subsection_id,
+                    is_subsection=True
+                )
+
+        # 3. Placeholder for TOC (will be replaced with styled TOC after page calculation)
+        toc_placeholder = "<!-- TOC_PLACEHOLDER -->\n\n"
+        lines.append(toc_placeholder)
+
+        # Page break after TOC
+        lines.append(self.page_break_manager.create_page_break())
+
+        # 4. Generate all sections with anchors
+        for section in self.sections:
+            section_id = f"section{section.number}"
+            # Section header with anchor
+            lines.append(f'<h2 id="{section_id}">{section.number}. {section.title}</h2>\n\n')
 
             # Renumber content to match assigned section number
             content = self.renumber_content(section.content, section.number)
             lines.append(content)
             lines.append("\n---\n\n")
 
-        return ''.join(lines)
+        # 5. Join content
+        raw_content = ''.join(lines)
+
+        # 6. Process all page breaks (14 locations)
+        print("\n📄 Processing page breaks...")
+        final_content = self.page_break_manager.process_all_page_breaks(raw_content)
+
+        # 7. Calculate TOC page numbers
+        print("📑 Calculating TOC page numbers...")
+        self.toc_calculator.calculate_all_page_numbers(final_content)
+        self.toc_calculator.print_toc_summary()
+
+        # 8. Generate styled TOC
+        styled_toc = self.toc_calculator.generate_styled_toc_html()
+
+        # 9. Replace placeholder with actual TOC
+        final_content = final_content.replace(toc_placeholder, styled_toc)
+
+        return final_content
 
 
 def generate_markdown_report(job: Job, phases_data: Dict[str, Any]) -> str:

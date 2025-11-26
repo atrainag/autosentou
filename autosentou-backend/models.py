@@ -35,7 +35,8 @@ class Job(Base):
 
     id = Column(String, primary_key=True, index=True)
     description = Column(String)
-    target = Column(Text)
+    target = Column(Text)  # IP address used for scanning (resolved from original_target)
+    original_target = Column(Text, nullable=True)  # Original input (domain/URL) for display
     status = Column(String)  # running, completed, failed, cancelled, suspended
     phase = Column(String)
     phase_desc = Column(String)
@@ -187,15 +188,9 @@ class Finding(Base):
 
 
 class StartScanRequest(BaseModel):
-    target: str 
+    target: str
     description: Optional[str] = None
-    scan_type: Optional[str] = "comprehensive"  # comprehensive, quick, web_only, network_only
-    include_brute_force: Optional[bool] = True
-    include_sqli_testing: Optional[bool] = True
-    include_web_enumeration: Optional[bool] = True
     custom_wordlist: Optional[str] = None
-    max_threads: Optional[int] = 10
-    timeout: Optional[int] = 300
 
 
 class Vulnerability(BaseModel):
@@ -268,6 +263,7 @@ class FindingResponse(BaseModel):
     remediation: Optional[str] = None
     poc: Optional[str] = None
     evidence: Optional[Dict[str, Any]] = None
+    is_categorized: Optional[bool] = False
     created_at: datetime
 
     class Config:

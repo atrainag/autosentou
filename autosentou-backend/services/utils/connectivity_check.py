@@ -90,78 +90,6 @@ def check_icmp_ping(host: str, timeout: int = 3) -> bool:
         logger.error(f"Error during ICMP ping to {host}: {str(e)}")
         return False
 
-
-def check_tcp_connect(host: str, port: int, timeout: int = 5) -> bool:
-    """
-    Check if host accepts TCP connection on specified port.
-
-    Args:
-        host: Hostname or IP address
-        port: TCP port to check
-        timeout: Connection timeout in seconds
-
-    Returns:
-        True if connection succeeds, False otherwise
-    """
-    try:
-        logger.info(f"Performing TCP connection check to {host}:{port}...")
-
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(timeout)
-
-        result = sock.connect_ex((host, port))
-        sock.close()
-
-        if result == 0:
-            logger.info(f"TCP connection successful to {host}:{port}")
-            return True
-        else:
-            logger.warning(f"TCP connection failed to {host}:{port}")
-            return False
-
-    except socket.timeout:
-        logger.warning(f"TCP connection timeout for {host}:{port}")
-        return False
-    except socket.gaierror as e:
-        logger.error(f"DNS resolution failed for {host}: {str(e)}")
-        return False
-    except Exception as e:
-        logger.error(f"Error during TCP connection to {host}:{port}: {str(e)}")
-        return False
-
-
-def check_common_ports(host: str, timeout: int = 3) -> bool:
-    """
-    Check if any common ports are open on the host.
-
-    Args:
-        host: Hostname or IP address
-        timeout: Connection timeout in seconds per port
-
-    Returns:
-        True if any common port is open, False otherwise
-    """
-    common_ports = [80, 443, 22, 21, 25, 3389, 8080, 8443]
-
-    logger.info(f"Checking common ports on {host}...")
-
-    for port in common_ports:
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(timeout)
-            result = sock.connect_ex((host, port))
-            sock.close()
-
-            if result == 0:
-                logger.info(f"Found open port {port} on {host}")
-                return True
-        except Exception:
-            continue
-
-    logger.warning(f"No common ports open on {host}")
-    return False
-
-
 def is_server_responsive(target: str) -> Tuple[bool, str]:
     """
     Check if server is responsive before starting a scan.
@@ -206,27 +134,12 @@ def is_server_responsive(target: str) -> Tuple[bool, str]:
         # Step 2: ICMP ping check
         ping_success = check_icmp_ping(host, timeout=3)
 
-        # Step 3: TCP connection check
-        tcp_success = False
-        if port:
-            tcp_success = check_tcp_connect(host, port, timeout=5)
-        else:
-            tcp_success = check_common_ports(host, timeout=2)
-
-        # Evaluate results
-        if tcp_success:
-            logger.info(f"Server {host} is responsive (TCP connection successful)")
-            return (True, f"Server is responsive - TCP connection successful")
-        elif ping_success:
+        if ping_success:
             logger.info(f"Server {host} is responsive (ICMP ping successful)")
             return (True, f"Server is responsive - ICMP ping successful")
         else:
             logger.warning(f"Server {host} is not responsive")
-            if port:
-                return (False, f"Server is not responding. Cannot reach {host}:{port}. "
-                              f"Please verify the target is online and accessible.")
-            else:
-                return (False, f"Server is not responding. Cannot reach {host} via ICMP or common ports. "
+            return (False, f"Server is not responding. Cannot reach {host} via ICMP. "
                               f"Please verify the target is online and accessible.")
 
     except Exception as e:

@@ -2,15 +2,21 @@
 Knowledge Base API Controller
 Provides REST API endpoints for vulnerability knowledge base management
 """
-from fastapi import APIRouter, HTTPException, Depends, Query
-from fastapi.responses import Response, JSONResponse
+from fastapi import APIRouter, HTTPException, Depends, Query, BackgroundTasks
+from fastapi.responses import Response, JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import case
 from typing import Optional, List
 import logging
 import math
+import json
+import asyncio
+import time
+from queue import Queue
+from threading import Thread
 
 from database import get_db
-from models import KnowledgeBaseVulnerability, Finding
+from models import KnowledgeBaseVulnerability, Finding, finding_knowledge_base_link
 from schemas.knowledge_base import (
     KnowledgeBaseVulnerabilityCreate,
     KnowledgeBaseVulnerabilityUpdate,
@@ -71,10 +77,12 @@ def list_vulnerabilities(
     category: Optional[str] = Query(None, description="Filter by category"),
     severity: Optional[str] = Query(None, description="Filter by severity"),
     is_active: Optional[bool] = Query(True, description="Filter by active status"),
+    sort_by: Optional[str] = Query("name", description="Sort by field"),
+    sort_order: Optional[str] = Query("asc", description="Sort order (asc/desc)"),
     db: Session = Depends(get_db)
 ):
     """
-    Get a paginated list of vulnerabilities with optional filtering.
+    Get a paginated list of vulnerabilities with optional filtering and sorting.
 
     - **page**: Page number (default: 1)
     - **limit**: Items per page (default: 20, max: 100)
@@ -82,6 +90,8 @@ def list_vulnerabilities(
     - **category**: Filter by category
     - **severity**: Filter by severity
     - **is_active**: Show only active vulnerabilities (default: True)
+    - **sort_by**: Sort by field (name, category, severity, priority)
+    - **sort_order**: Sort order (asc/desc)
     """
     try:
         skip = (page - 1) * limit
@@ -92,7 +102,9 @@ def list_vulnerabilities(
             search=search,
             category=category,
             severity=severity,
-            is_active=is_active
+            is_active=is_active,
+            sort_by=sort_by,
+            sort_order=sort_order
         )
 
         total_pages = math.ceil(total / limit) if total > 0 else 0
@@ -545,6 +557,170 @@ def get_uncategorized_findings(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@router.get("/categorized-findings")
+def get_categorized_findings(
+    page: int = Query(1, ge=1, description="Page number"),
+    limit: int = Query(20, ge=1, le=100, description="Items per page"),
+    search: Optional[str] = Query(None, description="Search query"),
+    severity: Optional[str] = Query(None, description="Filter by severity"),
+    finding_type: Optional[str] = Query(None, description="Filter by finding type"),
+    job_id: Optional[str] = Query(None, description="Filter by job ID"),
+    kb_id: Optional[int] = Query(None, description="Filter by linked KB entry"),
+    sort_by: Optional[str] = Query("linked_at", description="Sort by field"),
+    sort_order: Optional[str] = Query("desc", description="Sort order (asc/desc)"),
+    db: Session = Depends(get_db)
+):
+    """
+    Get a paginated list of categorized findings (findings linked to KB entries).
+
+    - **page**: Page number (default: 1)
+    - **limit**: Items per page (default: 20, max: 100)
+    - **search**: Search in title, description, cve_id
+    - **severity**: Filter by severity
+    - **finding_type**: Filter by finding type
+    - **job_id**: Filter by job ID
+    - **kb_id**: Filter by linked KB entry ID
+    - **sort_by**: Field to sort by (linked_at, created_at, severity, title)
+    - **sort_order**: Sort order (asc or desc)
+
+    Returns findings that have been linked to knowledge base entries,
+    including information about the KB entry they're linked to.
+    """
+    try:
+        skip = (page - 1) * limit
+
+        # Build base query for categorized findings
+        query = db.query(Finding).filter(Finding.is_categorized == True)
+
+        # Apply filters
+        if search:
+            search_pattern = f"%{search}%"
+            query = query.filter(
+                or_(
+                    Finding.title.ilike(search_pattern),
+                    Finding.description.ilike(search_pattern),
+                    Finding.cve_id.ilike(search_pattern)
+                )
+            )
+
+        if severity:
+            query = query.filter(Finding.severity.ilike(severity))
+
+        if finding_type:
+            query = query.filter(Finding.finding_type.ilike(finding_type))
+
+        if job_id:
+            query = query.filter(Finding.job_id == job_id)
+
+        if kb_id:
+            # Join with the link table to filter by KB ID
+            query = query.join(
+                finding_knowledge_base_link,
+                Finding.id == finding_knowledge_base_link.c.finding_id
+            ).filter(finding_knowledge_base_link.c.knowledge_base_id == kb_id)
+
+        # Get total count before pagination
+        total = query.count()
+
+        # Apply sorting
+        if sort_by == "linked_at":
+            # Join with link table for sorting by linked_at
+            query = query.join(
+                finding_knowledge_base_link,
+                Finding.id == finding_knowledge_base_link.c.finding_id,
+                isouter=True
+            )
+            if sort_order.lower() == "asc":
+                query = query.order_by(finding_knowledge_base_link.c.linked_at.asc())
+            else:
+                query = query.order_by(finding_knowledge_base_link.c.linked_at.desc())
+        elif sort_by == "severity":
+            # Custom severity ordering
+            severity_order = case(
+                (Finding.severity == "Critical", 1),
+                (Finding.severity == "High", 2),
+                (Finding.severity == "Medium", 3),
+                (Finding.severity == "Low", 4),
+                (Finding.severity == "Informational", 5),
+                else_=6
+            )
+            if sort_order.lower() == "asc":
+                query = query.order_by(severity_order.asc())
+            else:
+                query = query.order_by(severity_order.desc())
+        elif sort_by == "title":
+            if sort_order.lower() == "asc":
+                query = query.order_by(Finding.title.asc())
+            else:
+                query = query.order_by(Finding.title.desc())
+        else:  # Default to created_at
+            if sort_order.lower() == "asc":
+                query = query.order_by(Finding.created_at.asc())
+            else:
+                query = query.order_by(Finding.created_at.desc())
+
+        # Apply pagination
+        findings = query.offset(skip).limit(limit).all()
+
+        # Enrich findings with KB link information
+        enriched_findings = []
+        for f in findings:
+            # Get the link information
+            link = db.query(finding_knowledge_base_link).filter(
+                finding_knowledge_base_link.c.finding_id == f.id
+            ).first()
+
+            kb_info = None
+            if link:
+                kb_entry = kb_service.get_vulnerability(db, link.knowledge_base_id)
+                if kb_entry:
+                    kb_info = {
+                        "id": kb_entry.id,
+                        "name": kb_entry.name,
+                        "category": kb_entry.category,
+                        "severity": kb_entry.severity,
+                        "cve_id": kb_entry.cve_id,
+                        "similarity_score": link.similarity_score,
+                        "linked_at": link.linked_at.isoformat() if link.linked_at else None
+                    }
+
+            finding_dict = {
+                "id": f.id,
+                "job_id": f.job_id,
+                "title": f.title,
+                "description": f.description,
+                "finding_type": f.finding_type,
+                "severity": f.severity,
+                "owasp_category": f.owasp_category,
+                "service": f.service,
+                "port": f.port,
+                "url": f.url,
+                "cve_id": f.cve_id,
+                "cvss_score": f.cvss_score,
+                "remediation": f.remediation,
+                "poc": f.poc,
+                "evidence": f.evidence,
+                "is_categorized": f.is_categorized,
+                "created_at": f.created_at.isoformat() if f.created_at else None,
+                "kb_link": kb_info
+            }
+            enriched_findings.append(finding_dict)
+
+        total_pages = math.ceil(total / limit) if total > 0 else 0
+
+        return {
+            "findings": enriched_findings,
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "total_pages": total_pages
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting categorized findings: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 # Global cancellation flag for re-categorization
 _recategorization_cancelled = False
 
@@ -683,6 +859,167 @@ def recategorize_uncategorized_findings(
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
+@router.get("/recategorize-uncategorized-stream")
+async def recategorize_uncategorized_stream(
+    limit: Optional[int] = Query(None, description="Max number of findings to process (default: all)"),
+    db: Session = Depends(get_db)
+):
+    """
+    Stream progress updates while re-categorizing uncategorized findings.
+    Returns Server-Sent Events (SSE) with progress updates.
+    Runs in background thread to avoid blocking FastAPI.
+    """
+    from services.ai.ai_categorizer import ai_categorize_finding
+
+    # Queue for communicating between background thread and async generator
+    progress_queue = Queue()
+
+    def process_findings():
+        """Background thread function that does the heavy work"""
+        global _recategorization_cancelled
+        _recategorization_cancelled = False
+
+        try:
+            # Get uncategorized findings
+            query = db.query(Finding).filter(Finding.is_categorized == False)
+
+            if limit:
+                findings = query.limit(limit).all()
+            else:
+                findings = query.all()
+
+            total_findings = len(findings)
+
+            if total_findings == 0:
+                progress_queue.put({'type': 'complete', 'total': 0, 'successful': 0, 'failed': 0})
+                return
+
+            # Send initial progress
+            progress_queue.put({'type': 'progress', 'current': 0, 'total': total_findings})
+
+            successful = 0
+            failed = 0
+            last_ai_call_time = 0
+
+            for idx, finding in enumerate(findings, 1):
+                # Check for cancellation
+                if _recategorization_cancelled:
+                    logger.warning(f"Re-categorization cancelled at {idx}/{total_findings}")
+                    db.commit()
+                    progress_queue.put({'type': 'cancelled', 'current': idx-1, 'total': total_findings, 'successful': successful, 'failed': failed})
+                    return
+
+                try:
+                    logger.info(f"[{idx}/{total_findings}] Processing: {finding.title}")
+
+                    # Rate limiting
+                    time_since_last_call = time.time() - last_ai_call_time
+                    if time_since_last_call < 6 and idx > 1:
+                        sleep_time = 6 - time_since_last_call
+                        time.sleep(sleep_time)
+
+                    finding_data = {
+                        'title': finding.title,
+                        'description': finding.description,
+                        'finding_type': finding.finding_type,
+                        'url': finding.url,
+                        'service': finding.service,
+                        'port': finding.port,
+                        'cve_id': finding.cve_id,
+                        'evidence': finding.evidence
+                    }
+
+                    last_ai_call_time = time.time()
+                    ai_result = ai_categorize_finding(finding_data)
+
+                    if ai_result:
+                        finding.severity = ai_result.get('severity', finding.severity or 'Medium')
+                        finding.owasp_category = ai_result.get('owasp_category', finding.owasp_category)
+                        if ai_result.get('remediation') and not finding.remediation:
+                            finding.remediation = ai_result['remediation']
+                        finding.is_categorized = True
+
+                        try:
+                            kb_entry = kb_service.create_kb_from_finding(
+                                db=db,
+                                finding_data=finding_data,
+                                ai_categorization=ai_result
+                            )
+                            if kb_entry:
+                                kb_service.link_finding_to_kb(
+                                    db=db,
+                                    finding_id=finding.id,
+                                    kb_id=kb_entry.id,
+                                    similarity_score=0.95
+                                )
+                        except Exception as kb_error:
+                            logger.warning(f"  KB creation failed: {kb_error}")
+
+                        successful += 1
+                        logger.info(f"  ✓ Success - {ai_result.get('severity')}")
+                    else:
+                        failed += 1
+                        logger.warning(f"  ✗ Failed - AI returned no result")
+
+                except Exception as finding_error:
+                    failed += 1
+                    logger.error(f"  ✗ Error: {finding_error}")
+
+                # Send progress update
+                progress_queue.put({'type': 'progress', 'current': idx, 'total': total_findings})
+
+            # Commit final changes
+            db.commit()
+
+            # Send completion
+            progress_queue.put({'type': 'complete', 'total': total_findings, 'successful': successful, 'failed': failed})
+
+        except Exception as e:
+            logger.error(f"Error in background processing: {e}", exc_info=True)
+            progress_queue.put({'type': 'error', 'message': str(e)})
+
+    # Start background thread
+    thread = Thread(target=process_findings, daemon=True)
+    thread.start()
+
+    async def event_generator():
+        """Async generator that yields SSE events from the queue"""
+        try:
+            while True:
+                # Check queue for updates (non-blocking with timeout)
+                try:
+                    # Use a short timeout to keep the connection alive
+                    if not progress_queue.empty():
+                        data = progress_queue.get_nowait()
+
+                        yield f"data: {json.dumps(data)}\n\n"
+
+                        # Stop streaming if we got a terminal event
+                        if data['type'] in ['complete', 'cancelled', 'error']:
+                            break
+                    else:
+                        # Send keepalive comment to prevent timeout
+                        yield ": keepalive\n\n"
+                        await asyncio.sleep(0.5)
+
+                except Exception as e:
+                    logger.error(f"Error reading from queue: {e}")
+                    break
+
+        except Exception as e:
+            logger.error(f"Error in event generator: {e}", exc_info=True)
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
 @router.post("/cancel-recategorization")
 def cancel_recategorization():
     """
@@ -705,6 +1042,49 @@ def cancel_recategorization():
 # ============================================================================
 # Statistics
 # ============================================================================
+
+@router.get("/available-categories")
+def get_available_categories(db: Session = Depends(get_db)):
+    """
+    Get list of all unique categories from active vulnerabilities.
+    """
+    try:
+        categories = db.query(KnowledgeBaseVulnerability.category)\
+            .filter(
+                KnowledgeBaseVulnerability.is_active == True,
+                KnowledgeBaseVulnerability.category.isnot(None)
+            )\
+            .distinct()\
+            .order_by(KnowledgeBaseVulnerability.category)\
+            .all()
+
+        return {
+            "categories": [cat[0] for cat in categories if cat[0]]
+        }
+    except Exception as e:
+        logger.error(f"Error getting categories: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/available-finding-types")
+def get_available_finding_types(db: Session = Depends(get_db)):
+    """
+    Get list of all unique finding types from findings.
+    """
+    try:
+        finding_types = db.query(Finding.finding_type)\
+            .filter(Finding.finding_type.isnot(None))\
+            .distinct()\
+            .order_by(Finding.finding_type)\
+            .all()
+
+        return {
+            "finding_types": [ft[0] for ft in finding_types if ft[0]]
+        }
+    except Exception as e:
+        logger.error(f"Error getting finding types: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 
 @router.get("/stats")
 def get_kb_statistics(db: Session = Depends(get_db)):

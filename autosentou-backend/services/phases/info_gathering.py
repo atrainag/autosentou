@@ -2,6 +2,8 @@
 import re
 import socket
 import logging
+import threading
+import time
 from datetime import datetime
 from typing import Dict, Any, Optional
 from  services.utils.system import run_command
@@ -14,15 +16,22 @@ logger = logging.getLogger(__name__)
 
 def run_nmap(target: str) -> Dict[str, Any]:
     """Run nmap and parse output into detailed JSON summary."""
-    # First, run a quick scan to identify open ports
-    # Using -sT (TCP connect) instead of -sS (SYN scan) to avoid requiring root privileges
-    quick_cmd = ["nmap", "-sT",  "-Pn", "-p1-65535", "-oG", "-", target]
+    # First, run a quick SYN scan to identify open ports
+    # Using -sS (SYN scan) for speed and stealth - requires root/sudo
+    # -Pn: Skip host discovery (assume host is up)
+    # -p-: Scan all 65535 ports
+    # -T4: Aggressive timing (faster)
+    # -oG: Grepable output for easy parsing
+    logger.info(f"Starting initial nmap port scan on {target} (all 65535 ports with SYN scan)...")
+    logger.info("This may take 2-5 minutes depending on network speed and firewall rules...")
+
+    quick_cmd = ["nmap", "-sS", "-Pn",  "-p1-65535", "-oG", "-", target]
     quick_res = run_command(quick_cmd)
-    
+
     # Parse quick scan results
     open_ports = []
     quick_stdout = quick_res.get("stdout", "") or ""
-    
+
     for line in quick_stdout.splitlines():
         if "Ports:" in line:
             ports_field = re.search(r"Ports:\s*(.+)$", line)
@@ -37,19 +46,26 @@ def run_nmap(target: str) -> Dict[str, Any]:
                                 open_ports.append(port_num)
                         except (ValueError, IndexError):
                             continue
-    
+
     # If no ports found, try common ports as a fallback
     if not open_ports:
-        open_ports = [21, 22, 23, 25, 53, 80, 110, 143, 443, 993, 995, 3389, 5432, 3306, 1433, 6379, 27017]
-    
-    # Run detailed scan on open ports, including OS detection
-    # Using -sT (TCP connect) along with -sV (version), -sC (scripts), and -O (OS detection)
-    # Added --privileged for better OS detection if running as root
+        logger.warning(f"No open ports found in initial scan on {target}, falling back to common ports")
+    else:
+        logger.info(f"Found {len(open_ports)} open ports: {open_ports[:10]}{'...' if len(open_ports) > 10 else ''}")
+
+    # Run detailed scan on open ports with version detection, scripts, and OS detection
+    # -sS: SYN scan (fast and stealthy)
+    # -sV: Version detection
+    # -sC: Default scripts (safe, informative)
+    # -O: OS detection
+    logger.info(f"Starting detailed nmap scan on {len(open_ports)} open ports with version detection and OS fingerprinting...")
+    logger.info("This may take 2-3 minutes depending on the number of open ports and services...")
+
     if open_ports:
         ports_str = ",".join(map(str, open_ports))
-        detailed_cmd = ["nmap", "-sT", "-sV", "-sC", "-O", "--privileged", "-T4", "-p", ports_str, target]
+        detailed_cmd = ["nmap", "-sS", "-sV", "-sC", "-O", "-p", ports_str, target]
     else:
-        detailed_cmd = ["nmap", "-sT", "-sV", "-sC", "-O", "--privileged", "-T4", "-p", "1-1000", target]
+        detailed_cmd = ["nmap", "-sS", "-sV", "-sC", "-O", "-p", "1-1000", target]
 
     res = run_command(detailed_cmd)
     stdout = res.get("stdout", "") or ""
@@ -98,7 +114,7 @@ def run_nmap(target: str) -> Dict[str, Any]:
 
         if parsing_ports:
             # Regex to capture port, protocol, state, service, and version
-            match = re.match(r"(\d+)/(\w+)\s+(open)\s+(\S+)\s*(.*)", line)
+            match = re.match(r"(\d+)/(\w+)\s+(open|filtered|closed)\s+(\S+)\s*(.*)", line)
             if match:
                 port_num = int(match.group(1))
                 proto = match.group(2)

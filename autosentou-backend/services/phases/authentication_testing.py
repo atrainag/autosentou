@@ -20,6 +20,8 @@ from typing import Dict, Any, List, Optional
 from models import Phase, Job
 from services.ai.ai_service import init_ai_service
 from services.utils.output_manager import get_output_manager
+from services.utils.auth_analyzer import AuthAnalyzer
+from services.utils.sqlmap_wrapper import SQLMapWrapper
 
 logger = logging.getLogger(__name__)
 
@@ -235,9 +237,14 @@ def run_authentication_testing_phase(db_session, job: Job, web_enum_data: Dict[s
         output_dir = f"reports/{job.id}/authentication_testing"
         os.makedirs(output_dir, exist_ok=True)
 
+        # Initialize analyzers
+        auth_analyzer = AuthAnalyzer()
+        sqlmap_wrapper = SQLMapWrapper(level=1, risk=1, output_dir=output_dir)
+
         login_response_tests = []
         vulnerable_login_count = 0
         vulnerabilities_found = []
+        sqlmap_results = []
 
         # Test each login page
         logger.info(f"[Job {job.id}] Testing {len(login_pages[:5])} login page(s)...")
@@ -250,52 +257,86 @@ def run_authentication_testing_phase(db_session, job: Job, web_enum_data: Dict[s
 
             logger.info(f"[Job {job.id}] [{idx}/{min(len(login_pages), 5)}] Testing: {url}")
 
-            # Test login response security
-            response_test = test_login_response_security(url)
-            login_response_tests.append(response_test)
+            # Use AuthAnalyzer for comprehensive testing
+            analysis_result = auth_analyzer.analyze_login_endpoint(url)
+            login_response_tests.append(analysis_result)
 
-            if response_test.get('security_issues_found'):
+            # Check for username enumeration
+            if analysis_result.get('enumeration_possible'):
                 vulnerable_login_count += 1
                 vulnerabilities_found.append({
                     'url': url,
                     'type': 'Username Enumeration',
                     'owasp': 'A04:2021 - Insecure Design',
                     'severity': 'Low',
+                    'method': analysis_result.get('enumeration_method'),
+                    'evidence': analysis_result.get('evidence', []),
                     'description': 'Login page reveals whether accounts exist through different error messages or response patterns'
                 })
-                logger.warning(f"[Job {job.id}]   ⚠️ VULNERABLE: Username enumeration possible")
+                logger.warning(f"[Job {job.id}]   ⚠️ Username enumeration: {analysis_result.get('enumeration_method')}")
             else:
-                logger.info(f"[Job {job.id}]   ✓ SECURE: No username enumeration detected")
+                logger.info(f"[Job {job.id}]   ✓ No username enumeration detected")
 
-        # Test each login page
-        for login_page in login_pages:
-            test_result = test_login_response_security(login_page, output_dir)
+            # Check for SQLi indicators
+            if analysis_result.get('sqli_indicators', {}).get('indicators_found'):
+                sqli_data = analysis_result['sqli_indicators']
+                indicator_types = ', '.join(sqli_data['indicator_types'])
+                logger.warning(f"[Job {job.id}]   ⚠️ SQL injection indicators: {indicator_types}")
+
+                # Automatically run SQLMap
+                logger.info(f"[Job {job.id}]   🔍 Auto-launching SQLMap (Level 1, safe)...")
+
+                sqlmap_params = sqli_data.get('sqlmap_params', {})
+                sqlmap_result = sqlmap_wrapper.test_endpoint(
+                    url=sqlmap_params.get('url', url),
+                    method=sqlmap_params.get('method', 'POST'),
+                    data=sqlmap_params.get('data'),
+                    test_parameter=sqlmap_params.get('testParameter')
+                )
+
+                sqlmap_results.append(sqlmap_result)
+
+                if sqlmap_result.get('vulnerable'):
+                    vulnerabilities_found.append({
+                        'url': url,
+                        'type': 'SQL Injection',
+                        'owasp': 'A03:2021 - Injection',
+                        'severity': 'Critical',
+                        'cvss': 9.8,
+                        'techniques': [v.get('technique', 'Unknown') for v in sqlmap_result.get('vulnerabilities', [])],
+                        'description': 'SQL injection vulnerability confirmed by SQLMap',
+                        'sqlmap_output': sqlmap_result.get('output_file')
+                    })
+                    logger.error(f"[Job {job.id}]   ❌ CRITICAL: SQL injection CONFIRMED by SQLMap!")
+                else:
+                    logger.info(f"[Job {job.id}]   ✓ SQLMap: No exploitable SQL injection found")
 
             # SAVE AUTH TEST OUTPUT
-            if test_result:
-                auth_paths = output_mgr.save_auth_test_output(
-                    url=login_page,
-                    test_data=test_result
-                )
-                test_result['saved_files'] = auth_paths
-
-            login_response_tests.append(test_result)
+            auth_paths = output_mgr.save_auth_test_output(
+                url=url,
+                test_data=analysis_result
+            )
+            analysis_result['saved_files'] = auth_paths
 
         # Combine results
+        sql_injection_count = len([v for v in vulnerabilities_found if v['type'] == 'SQL Injection'])
+
         combined_data = {
-            'testing_type': 'Authentication Security Analysis (Username Enumeration Detection)',
+            'testing_type': 'Enhanced Authentication Security Analysis',
             'login_pages_tested': len(login_response_tests),
             'login_response_tests': login_response_tests,
             'vulnerable_login_pages': vulnerable_login_count,
             'vulnerabilities_found': vulnerabilities_found,
+            'sqlmap_results': sqlmap_results,
             'security_summary': {
-                'account_enumeration_possible': sum(1 for t in login_response_tests if t['ai_analysis'].get('account_enumeration_possible')),
-                'distinguishes_errors': sum(1 for t in login_response_tests if t['ai_analysis'].get('distinguishes_errors')),
-                'total_issues': sum(len(t['ai_analysis'].get('security_issues', [])) for t in login_response_tests),
-                'secure_implementations': len(login_response_tests) - vulnerable_login_count
+                'username_enumeration': vulnerable_login_count,
+                'sql_injection_confirmed': sql_injection_count,
+                'total_critical': sql_injection_count,
+                'total_low': vulnerable_login_count,
+                'secure_implementations': len(login_response_tests) - vulnerable_login_count - sql_injection_count
             },
             'testing_timestamp': datetime.now().isoformat(),
-            'note': 'Brute-force attacks are NOT performed by this tool. This phase only tests for username enumeration vulnerabilities.'
+            'note': 'Tests for username enumeration and SQL injection. SQLMap runs automatically when indicators are detected. Brute-force attacks are NOT performed.'
         }
 
         # SAVE COMPLETE PHASE DATA
@@ -312,8 +353,9 @@ def run_authentication_testing_phase(db_session, job: Job, web_enum_data: Dict[s
         logger.info("="*80)
         logger.info(f"[Job {job.id}] AUTHENTICATION TESTING PHASE COMPLETED")
         logger.info(f"[Job {job.id}] Tested: {len(login_response_tests)} login page(s)")
-        logger.info(f"[Job {job.id}] Vulnerable: {vulnerable_login_count} page(s)")
-        logger.info(f"[Job {job.id}] Secure: {len(login_response_tests) - vulnerable_login_count} page(s)")
+        logger.info(f"[Job {job.id}] Username enumeration: {vulnerable_login_count} vulnerable")
+        logger.info(f"[Job {job.id}] SQL injection: {sql_injection_count} CONFIRMED by SQLMap")
+        logger.info(f"[Job {job.id}] Secure: {len(login_response_tests) - vulnerable_login_count - sql_injection_count} page(s)")
         logger.info("="*80)
 
         return phase

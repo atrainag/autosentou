@@ -175,9 +175,11 @@ export const useKnowledgeBaseStore = defineStore('knowledgeBase', () => {
         total: data.total,
         totalPages: data.total_pages,
       }
+      return data // Return the data for direct use in components
     } catch (err) {
       error.value = err.message || 'Failed to search vulnerabilities'
       console.error('Error searching vulnerabilities:', err)
+      throw err // Throw error so component can handle it
     } finally {
       loading.value = false
     }
@@ -377,6 +379,121 @@ export const useKnowledgeBaseStore = defineStore('knowledgeBase', () => {
     fetchUncategorizedFindings()
   }
 
+  // Categorized findings management
+  const categorizedFindingsList = ref([])
+  const categorizedPagination = ref({
+    page: 1,
+    limit: 20,
+    total: 0,
+    totalPages: 0,
+  })
+  const categorizedFilters = ref({
+    search: '',
+    severity: null,
+    finding_type: null,
+    job_id: null,
+    kb_id: null,
+    sort_by: 'linked_at',
+    sort_order: 'desc',
+  })
+
+  const fetchCategorizedFindings = async (params = {}) => {
+    loading.value = true
+    error.value = null
+    try {
+      const queryParams = {
+        page: categorizedPagination.value.page,
+        limit: categorizedPagination.value.limit,
+        ...categorizedFilters.value,
+        ...params,
+      }
+
+      const data = await knowledgeBaseApi.getCategorizedFindings(queryParams)
+      categorizedFindingsList.value = data.findings
+      categorizedPagination.value = {
+        page: data.page,
+        limit: data.limit,
+        total: data.total,
+        totalPages: data.total_pages,
+      }
+    } catch (err) {
+      error.value = err.message || 'Failed to fetch categorized findings'
+      console.error('Error fetching categorized findings:', err)
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const setCategorizedPage = (page) => {
+    categorizedPagination.value.page = page
+    fetchCategorizedFindings()
+  }
+
+  const setCategorizedFilters = (newFilters) => {
+    categorizedFilters.value = { ...categorizedFilters.value, ...newFilters }
+    categorizedPagination.value.page = 1 // Reset to first page
+    fetchCategorizedFindings()
+  }
+
+  const clearCategorizedFilters = () => {
+    categorizedFilters.value = {
+      search: '',
+      severity: null,
+      finding_type: null,
+      job_id: null,
+      kb_id: null,
+      sort_by: 'linked_at',
+      sort_order: 'desc',
+    }
+    categorizedPagination.value.page = 1
+    fetchCategorizedFindings()
+  }
+
+  // AI Recategorization state
+  const isRecategorizing = ref(false)
+  const recategorizeProgress = ref({ current: 0, total: 0 })
+  const isCancelling = ref(false)
+
+  // Available options for filters
+  const availableCategories = ref([])
+  const availableFindingTypes = ref([])
+
+  const setRecategorizing = (value) => {
+    isRecategorizing.value = value
+  }
+
+  const setRecategorizeProgress = (current, total) => {
+    recategorizeProgress.value = { current, total }
+  }
+
+  const setCancelling = (value) => {
+    isCancelling.value = value
+  }
+
+  const resetRecategorization = () => {
+    isRecategorizing.value = false
+    recategorizeProgress.value = { current: 0, total: 0 }
+    isCancelling.value = false
+  }
+
+  const fetchAvailableCategories = async () => {
+    try {
+      const data = await knowledgeBaseApi.getAvailableCategories()
+      availableCategories.value = data.categories
+    } catch (err) {
+      console.error('Error fetching available categories:', err)
+    }
+  }
+
+  const fetchAvailableFindingTypes = async () => {
+    try {
+      const data = await knowledgeBaseApi.getAvailableFindingTypes()
+      availableFindingTypes.value = data.finding_types
+    } catch (err) {
+      console.error('Error fetching available finding types:', err)
+    }
+  }
+
   return {
     // State
     vulnerabilities,
@@ -390,6 +507,14 @@ export const useKnowledgeBaseStore = defineStore('knowledgeBase', () => {
     uncategorizedFindingsList,
     uncategorizedPagination,
     uncategorizedFilters,
+    categorizedFindingsList,
+    categorizedPagination,
+    categorizedFilters,
+    isRecategorizing,
+    recategorizeProgress,
+    isCancelling,
+    availableCategories,
+    availableFindingTypes,
 
     // Getters
     activeVulnerabilities,
@@ -420,5 +545,15 @@ export const useKnowledgeBaseStore = defineStore('knowledgeBase', () => {
     setUncategorizedPage,
     setUncategorizedFilters,
     clearUncategorizedFilters,
+    fetchCategorizedFindings,
+    setCategorizedPage,
+    setCategorizedFilters,
+    clearCategorizedFilters,
+    setRecategorizing,
+    setRecategorizeProgress,
+    setCancelling,
+    resetRecategorization,
+    fetchAvailableCategories,
+    fetchAvailableFindingTypes,
   }
 })

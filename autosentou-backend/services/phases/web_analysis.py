@@ -84,7 +84,7 @@ class WebAnalysisPhase:
 
         logger.info(f"WebAnalysisPhase initialized for job {job.id}")
 
-    def execute(self, web_enum_data: Dict[str, Any], max_pages: int = None, max_iterations: int = 3) -> Phase:
+    def execute(self, web_enum_data: Dict[str, Any], max_pages: int = None, max_iterations: int = 5) -> Phase:
         """
         Execute web analysis phase with recursive discovery.
 
@@ -126,6 +126,7 @@ class WebAnalysisPhase:
             # Track all findings across iterations
             all_confirmed_findings = []
             iteration_stats = []
+            stopping_reason = None
 
             # Recursive discovery loop (always 3 iterations)
             for iteration in range(1, max_iterations + 1):
@@ -141,7 +142,8 @@ class WebAnalysisPhase:
                     paths_to_analyze = self._extract_new_urls_from_findings(all_confirmed_findings)
 
                     if not paths_to_analyze:
-                        logger.info(f"  No new URLs discovered in iteration {iteration-1}, stopping")
+                        stopping_reason = f"No new URLs discovered in iteration {iteration-1}"
+                        logger.info(f"  {stopping_reason}, stopping")
                         break
 
                     logger.info(f"  Analyzing {len(paths_to_analyze)} new URLs from iteration {iteration-1}")
@@ -186,14 +188,45 @@ class WebAnalysisPhase:
                 logger.info(f"  Paths analyzed: {len(paths_to_analyze)}")
                 logger.info(f"  Confirmed findings: {len(iteration_confirmed)}")
 
-                # Stop if no new confirmed findings (prevents infinite loops)
-                if not iteration_confirmed:
-                    logger.info(f"  No confirmed findings in iteration {iteration}, stopping")
+                # Stopping condition check (after iteration 1)
+                if iteration > 1:
+                    # Calculate success rate for this iteration
+                    tested_count = len(deduplicated_findings)
+                    confirmed_count = len(iteration_confirmed)
+                    success_rate = (confirmed_count / tested_count * 100) if tested_count > 0 else 0
+
+                    logger.info(f"  Success rate: {success_rate:.1f}% ({confirmed_count}/{tested_count})")
+
+                    # Priority 1: Max iterations reached (hard stop)
+                    if iteration >= max_iterations:
+                        stopping_reason = f"Max iterations ({max_iterations}) reached"
+                        logger.info(f"  {stopping_reason}, stopping")
+                        break
+
+                    # Priority 2: Success rate < 10% (diminishing returns)
+                    if success_rate < 10 and tested_count > 5:  # Need at least 5 tests
+                        stopping_reason = f"Success rate below 10% ({success_rate:.1f}%) - diminishing returns"
+                        logger.warning(f"  {stopping_reason}, stopping early")
+                        break
+
+                    # Stop if no new confirmed findings
+                    if not iteration_confirmed:
+                        stopping_reason = f"No confirmed findings in iteration {iteration}"
+                        logger.info(f"  {stopping_reason}, stopping")
+                        break
+                elif iteration == 1 and not iteration_confirmed:
+                    # Special case: iteration 1 with no findings
+                    stopping_reason = "No confirmed findings in iteration 1"
+                    logger.info(f"  {stopping_reason}, stopping")
                     break
 
             # Calculate final statistics
             total_confirmed = len(all_confirmed_findings)
             total_iterations_run = len(iteration_stats)
+
+            # Set default stopping reason if not set
+            if not stopping_reason:
+                stopping_reason = "All iterations completed successfully"
 
             # Save results to phase
             phase.data = {
@@ -201,6 +234,7 @@ class WebAnalysisPhase:
                 "high_priority_paths": len(high_priority_paths),
                 "max_iterations": max_iterations,
                 "iterations_completed": total_iterations_run,
+                "stopping_reason": stopping_reason,
                 "iteration_stats": iteration_stats,
                 "total_confirmed_findings": total_confirmed,
                 "findings": all_confirmed_findings,  # All confirmed findings from all iterations
@@ -216,9 +250,11 @@ class WebAnalysisPhase:
             logger.info(f"[Job {self.job.id}] WEB ANALYSIS PHASE COMPLETED (RECURSIVE)")
             logger.info("=" * 80)
             logger.info(f"  Iterations completed: {total_iterations_run}/{max_iterations}")
+            logger.info(f"  Stopping reason: {stopping_reason}")
             logger.info(f"  Total confirmed findings: {total_confirmed}")
             for idx, stats in enumerate(iteration_stats, 1):
-                logger.info(f"  Iteration {idx}: {stats['confirmed']} confirmed from {stats['paths_analyzed']} paths")
+                success_rate = (stats['confirmed'] / stats['unique_findings'] * 100) if stats['unique_findings'] > 0 else 0
+                logger.info(f"  Iteration {idx}: {stats['confirmed']} confirmed from {stats['paths_analyzed']} paths (success: {success_rate:.1f}%)")
             logger.info("=" * 80)
 
             return phase
@@ -817,6 +853,31 @@ class WebAnalysisPhase:
                             logger.info(f"    ✗ FALSE POSITIVE: {confirmation_result.get('reasoning', '')[:80]}")
                         else:
                             logger.warning(f"    ? AMBIGUOUS: {confirmation_result.get('reasoning', '')[:80]}")
+
+                        # NEW: Test for XSS vulnerabilities on this page
+                        # Run XSS testing after confirmation (page is already loaded)
+                        try:
+                            logger.info(f"    🔍 Testing page for XSS vulnerabilities...")
+                            xss_result = await confirmer.test_xss_on_page(page, test_url)
+
+                            # Store XSS test results in the finding
+                            finding['xss_test_result'] = xss_result
+
+                            # Log XSS results
+                            if xss_result.get('xss_confirmed'):
+                                successful_payloads = xss_result.get('successful_payloads', [])
+                                logger.info(f"    ✓ XSS CONFIRMED: {len(successful_payloads)} successful payload(s)")
+                                for payload_info in successful_payloads:
+                                    logger.info(f"      → Field: {payload_info.get('field')}, Payload: {payload_info.get('payload')[:50]}...")
+                            else:
+                                input_fields = xss_result.get('input_fields_found', 0)
+                                if input_fields > 0:
+                                    logger.info(f"    ✓ No XSS found ({input_fields} field(s) tested)")
+                                else:
+                                    logger.info(f"    ℹ No input fields to test")
+                        except Exception as xss_error:
+                            logger.warning(f"    ⚠ XSS testing failed: {xss_error}")
+                            finding['xss_test_result'] = {'error': str(xss_error)}
 
                         confirmed_findings.append(finding)
 

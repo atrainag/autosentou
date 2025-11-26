@@ -16,7 +16,10 @@
             </button>
             <StatusBadge :status="job.status" />
           </div>
-          <h1 class="text-3xl font-bold text-white">{{ job.target }}</h1>
+          <h1 class="text-3xl font-bold text-white">{{ job.original_target || job.target }}</h1>
+          <p v-if="job.original_target && job.target !== job.original_target" class="text-gray-300 mt-1 text-sm">
+            <span class="text-gray-500">Scanning IP:</span> <span class="text-cyber-cyan">{{ job.target }}</span>
+          </p>
           <p class="text-gray-400 mt-1">{{ job.description || 'No description' }}</p>
           <div class="flex items-center space-x-4 mt-2 text-sm text-gray-500">
             <span>Created: {{ formatDate(job.created_at) }}</span>
@@ -27,41 +30,46 @@
           <button
             v-if="job.status === 'running'"
             @click="refreshJob"
-            class="btn-secondary"
+            class="btn-secondary flex items-center space-x-2"
           >
-            🔄 Refresh
+            <ArrowPathIcon class="w-5 h-5" />
+            <span>Refresh</span>
           </button>
           <button
             v-if="job.status === 'running'"
             @click="cancelScan"
-            class="btn-warning flex items-center"
+            class="btn-warning flex items-center space-x-2"
             :disabled="cancelling"
           >
-            <span v-if="!cancelling">⏹️ Cancel Scan</span>
-            <span v-else>⏳ Cancelling...</span>
+            <StopCircleIcon v-if="!cancelling" class="w-5 h-5" />
+            <ArrowPathIcon v-else class="w-5 h-5 animate-spin" />
+            <span>{{ cancelling ? 'Cancelling...' : 'Cancel Scan' }}</span>
           </button>
           <button
             v-if="job.status === 'suspended'"
             @click="resumeScan"
-            class="btn-primary flex items-center"
+            class="btn-primary flex items-center space-x-2"
             :disabled="resuming"
           >
-            <span v-if="!resuming">▶️ Resume Scan</span>
-            <span v-else>⏳ Resuming...</span>
+            <PlayCircleIcon v-if="!resuming" class="w-5 h-5" />
+            <ArrowPathIcon v-else class="w-5 h-5 animate-spin" />
+            <span>{{ resuming ? 'Resuming...' : 'Resume Scan' }}</span>
           </button>
           <router-link
             v-if="job.report_generated"
             :to="`/findings/${job.id}`"
-            class="btn-primary"
+            class="btn-primary flex items-center space-x-2"
           >
-            📊 Interactive Findings
+            <ChartBarIcon class="w-5 h-5" />
+            <span>Interactive Findings</span>
           </router-link>
           <router-link
             v-if="job.report_generated"
             :to="`/report/${job.id}`"
-            class="btn-secondary"
+            class="btn-secondary flex items-center space-x-2"
           >
-            📄 Summary PDF
+            <DocumentTextIcon class="w-5 h-5" />
+            <span>Summary PDF</span>
           </router-link>
           <button @click="openConfirmDialog" class="btn-danger flex items-center">
             <TrashIcon class="h-5 w-5 mr-2" />
@@ -73,7 +81,7 @@
       <!-- Error Message -->
       <div v-if="job.error_message" class="card p-4 border-l-4 border-red-500">
         <div class="flex items-start space-x-3">
-          <span class="text-2xl">⚠️</span>
+          <ExclamationTriangleIcon class="w-8 h-8 text-red-400 flex-shrink-0" />
           <div>
             <h3 class="text-white font-medium">Scan Failed</h3>
             <p class="text-sm text-gray-300 mt-1">{{ job.error_message }}</p>
@@ -84,7 +92,7 @@
       <!-- Suspended Status Message -->
       <div v-if="job.status === 'suspended'" class="card p-4 border-l-4 border-yellow-500">
         <div class="flex items-start space-x-3">
-          <span class="text-2xl">⏸️</span>
+          <PauseCircleIcon class="w-8 h-8 text-yellow-400 flex-shrink-0" />
           <div class="flex-1">
             <h3 class="text-white font-medium">Scan Suspended</h3>
             <p class="text-sm text-gray-300 mt-1">
@@ -115,13 +123,14 @@
               :key="tab.id"
               @click="activeTab = tab.id"
               :class="[
-                'py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap',
+                'py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap flex items-center space-x-2',
                 activeTab === tab.id
                   ? 'border-cyber-cyan text-cyber-cyan'
                   : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300'
               ]"
             >
-              {{ tab.icon }} {{ tab.name }}
+              <component :is="tabIconMap[tab.icon]" class="w-5 h-5" />
+              <span>{{ tab.name }}</span>
             </button>
           </nav>
         </div>
@@ -209,9 +218,9 @@
                 </div>
               </div>
 
-              <!-- Open Ports -->
-              <div v-if="infoGatheringData.nmap?.parsed_ports">
-                <h4 class="text-lg font-medium text-white mb-3">Open Ports</h4>
+              <!-- Discovered Ports -->
+              <div v-if="infoGatheringData.nmap?.parsed_ports && infoGatheringData.nmap.parsed_ports.length > 0">
+                <h4 class="text-lg font-medium text-white mb-3">Discovered Ports</h4>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div
                     v-for="port in infoGatheringData.nmap.parsed_ports"
@@ -220,7 +229,16 @@
                   >
                     <div class="flex items-center justify-between">
                       <span class="text-cyber-cyan font-mono">{{ port.port }}/{{ port.proto || 'tcp' }}</span>
-                      <span class="badge bg-blue-600">{{ port.state }}</span>
+                      <span
+                        :class="[
+                          'badge text-xs',
+                          port.state === 'open' ? 'bg-green-600' :
+                          port.state === 'filtered' ? 'bg-yellow-600' :
+                          'bg-gray-600'
+                        ]"
+                      >
+                        {{ port.state }}
+                      </span>
                     </div>
                     <div class="mt-2 text-sm text-gray-300">
                       <div>{{ port.service || 'Unknown' }}</div>
@@ -229,21 +247,28 @@
                   </div>
                 </div>
               </div>
+              <div v-else-if="infoGatheringData.nmap" class="p-4 bg-cyber-dark rounded-lg text-sm text-gray-400">
+                No ports discovered (host may be down or heavily firewalled)
+              </div>
             </template>
             <EmptyState
               v-else
-              icon="🔍"
               title="No data available"
               description="Information gathering phase not yet completed"
-            />
+            >
+              <template #icon>
+                <MagnifyingGlassIcon class="w-16 h-16 mx-auto text-gray-600" />
+              </template>
+            </EmptyState>
           </div>
 
           <!-- Web Enumeration Tab -->
           <div v-if="activeTab === 'web_enumeration'" class="space-y-4">
             <h3 class="text-xl font-semibold text-white mb-4">Path Discovery Results</h3>
-            <div class="p-4 bg-blue-900/20 border border-blue-500/30 rounded-lg mb-4">
+            <div class="p-4 bg-blue-900/20 border border-blue-500/30 rounded-lg mb-4 flex items-start space-x-3">
+              <InformationCircleIcon class="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
               <p class="text-sm text-blue-300">
-                ℹ️ This phase discovers and prioritizes paths for testing. These are NOT confirmed vulnerabilities -
+                This phase discovers and prioritizes paths for testing. These are NOT confirmed vulnerabilities -
                 see the "Web Vulnerabilities" tab for actual AI-tested findings.
               </p>
             </div>
@@ -300,10 +325,13 @@
             </template>
             <EmptyState
               v-else
-              icon="🌐"
               title="No data available"
               description="Path discovery phase not yet completed"
-            />
+            >
+              <template #icon>
+                <GlobeAltIcon class="w-16 h-16 mx-auto text-gray-600" />
+              </template>
+            </EmptyState>
           </div>
 
           <!-- Web Analysis Tab -->
@@ -398,7 +426,10 @@
 
                     <!-- Remediation -->
                     <div v-if="finding.remediation" class="p-3 bg-green-900/20 border border-green-500/30 rounded">
-                      <div class="text-xs text-green-400 mb-1">🛡️ Remediation:</div>
+                      <div class="text-xs text-green-400 mb-1 flex items-center space-x-1">
+                        <ShieldCheckIcon class="w-4 h-4" />
+                        <span>Remediation:</span>
+                      </div>
                       <div class="text-sm text-gray-300">{{ finding.remediation }}</div>
                     </div>
 
@@ -411,16 +442,19 @@
                 </div>
               </div>
               <div v-else class="text-center py-8">
-                <span class="text-6xl">✅</span>
+                <CheckCircleIcon class="w-20 h-20 mx-auto text-green-500" />
                 <p class="text-gray-400 mt-4">No web vulnerabilities detected</p>
               </div>
             </template>
             <EmptyState
               v-else
-              icon="🕷️"
               title="No data available"
               description="Web analysis phase not yet completed"
-            />
+            >
+              <template #icon>
+                <BugAntIcon class="w-16 h-16 mx-auto text-gray-600" />
+              </template>
+            </EmptyState>
           </div>
 
           <!-- CVE Analysis Tab -->
@@ -447,10 +481,13 @@
             </template>
             <EmptyState
               v-else
-              icon="⚠️"
               title="No vulnerabilities found"
               description="Vulnerability analysis phase not yet completed or no vulnerabilities detected"
-            />
+            >
+              <template #icon>
+                <ShieldExclamationIcon class="w-16 h-16 mx-auto text-gray-600" />
+              </template>
+            </EmptyState>
           </div>
 
           <!-- SQL Injection Tab -->
@@ -475,10 +512,13 @@
             </template>
             <EmptyState
               v-else
-              icon="💉"
               title="No data available"
               description="SQL injection testing phase not yet completed"
-            />
+            >
+              <template #icon>
+                <BeakerIcon class="w-16 h-16 mx-auto text-gray-600" />
+              </template>
+            </EmptyState>
           </div>
 
           <!-- Authentication Testing Tab -->
@@ -502,10 +542,13 @@
             </template>
             <EmptyState
               v-else
-              icon="🔐"
               title="No data available"
               description="Authentication testing phase not yet completed"
-            />
+            >
+              <template #icon>
+                <LockClosedIcon class="w-16 h-16 mx-auto text-gray-600" />
+              </template>
+            </EmptyState>
           </div>
         </div>
       </div>
@@ -514,10 +557,12 @@
     <!-- Job Not Found -->
     <EmptyState
       v-else
-      icon="❌"
       title="Job not found"
       description="The requested job could not be found"
     >
+      <template #icon>
+        <XCircleIcon class="w-16 h-16 mx-auto text-red-500" />
+      </template>
       <template #action>
         <router-link to="/" class="btn-primary">
           Go to Dashboard
@@ -546,7 +591,26 @@ import { useRoute, useRouter } from 'vue-router'
 import { useJobsStore } from '../stores/jobs'
 import { useAppStore } from '../stores/app'
 import ConfirmDialog from '../components/common/ConfirmDialog.vue'
-import { TrashIcon } from '@heroicons/vue/24/outline'
+import {
+  TrashIcon,
+  ChartBarIcon,
+  DocumentTextIcon,
+  ExclamationTriangleIcon,
+  PauseCircleIcon,
+  MagnifyingGlassIcon,
+  GlobeAltIcon,
+  BugAntIcon,
+  ShieldExclamationIcon,
+  BeakerIcon,
+  LockClosedIcon,
+  InformationCircleIcon,
+  CheckCircleIcon,
+  XCircleIcon,
+  ShieldCheckIcon,
+  ArrowPathIcon,
+  StopCircleIcon,
+  PlayCircleIcon
+} from '@heroicons/vue/24/outline'
 import StatusBadge from '../components/common/StatusBadge.vue'
 import LoadingSpinner from '../components/common/LoadingSpinner.vue'
 import EmptyState from '../components/common/EmptyState.vue'
@@ -568,13 +632,22 @@ const resuming = ref(false)
 const job = computed(() => jobsStore.currentJob)
 
 const tabs = [
-  { id: 'info_gathering', name: 'Info Gathering', icon: '🔍' },
-  { id: 'web_enumeration', name: 'Path Discovery', icon: '🌐' },
-  { id: 'web_analysis', name: 'Web Vulnerabilities', icon: '🕷️' },
-  { id: 'vulnerabilities', name: 'CVE Analysis', icon: '⚠️' },
-  { id: 'sqli', name: 'SQL Injection', icon: '💉' },
-  { id: 'auth', name: 'Authentication', icon: '🔐' },
+  { id: 'info_gathering', name: 'Info Gathering', icon: 'magnifying-glass' },
+  { id: 'web_enumeration', name: 'Path Discovery', icon: 'globe-alt' },
+  { id: 'web_analysis', name: 'Web Vulnerabilities', icon: 'bug-ant' },
+  { id: 'vulnerabilities', name: 'CVE Analysis', icon: 'shield-exclamation' },
+  { id: 'sqli', name: 'SQL Injection', icon: 'beaker' },
+  { id: 'auth', name: 'Authentication', icon: 'lock-closed' },
 ]
+
+const tabIconMap = {
+  'magnifying-glass': MagnifyingGlassIcon,
+  'globe-alt': GlobeAltIcon,
+  'bug-ant': BugAntIcon,
+  'shield-exclamation': ShieldExclamationIcon,
+  'beaker': BeakerIcon,
+  'lock-closed': LockClosedIcon
+}
 
 // Phase data extractors
 const phasesList = computed(() => {

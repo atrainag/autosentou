@@ -23,15 +23,7 @@ export const useJobsStore = defineStore('jobs', () => {
     jobs.value.filter(job => job.status === 'failed')
   )
 
-  const totalVulnerabilities = computed(() => {
-    return jobs.value.reduce((total, job) => {
-      // Use the new vulnerability_statistics field from API
-      if (job.vulnerability_statistics) {
-        return total + (job.vulnerability_statistics.total_vulnerabilities || 0)
-      }
-      return total
-    }, 0)
-  })
+  const totalFindings = ref(0)
 
   // Actions
   const fetchJobs = async () => {
@@ -113,6 +105,16 @@ export const useJobsStore = defineStore('jobs', () => {
     }
   }
 
+  const fetchTotalFindings = async () => {
+    try {
+      const data = await jobsApi.getTotalFindingsCount()
+      totalFindings.value = data.total_findings
+    } catch (err) {
+      console.error('Error fetching total findings:', err)
+      totalFindings.value = 0
+    }
+  }
+
   // Start polling for job updates (for active jobs)
   const startPolling = (jobId, interval = 3000) => {
     stopPolling() // Clear any existing polling
@@ -150,18 +152,19 @@ export const useJobsStore = defineStore('jobs', () => {
     currentJob,
     loading,
     error,
+    totalFindings,
 
     // Getters
     activeJobs,
     completedJobs,
     failedJobs,
-    totalVulnerabilities,
 
     // Actions
     fetchJobs,
     fetchJob,
     startScan,
     deleteJob,
+    fetchTotalFindings,
     startPolling,
     stopPolling,
     clearCurrentJob,

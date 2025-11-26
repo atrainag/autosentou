@@ -1,7 +1,15 @@
 <template>
   <div class="card">
-    <div class="p-6 border-b border-gray-800">
+    <div class="p-6 border-b border-gray-800 flex items-center justify-between">
       <h2 class="text-xl font-semibold text-white">Recent Scans</h2>
+      <button
+        @click="handleRefresh"
+        :disabled="refreshing"
+        class="text-gray-400 hover:text-white transition-colors disabled:opacity-50"
+        title="Refresh"
+      >
+        <ArrowPathIcon :class="['h-5 w-5', { 'animate-spin': refreshing }]" />
+      </button>
     </div>
     <div v-if="jobs.length === 0" class="p-6">
       <EmptyState
@@ -27,9 +35,14 @@
           <div class="flex-1 min-w-0">
             <div class="flex items-center space-x-3">
               <StatusBadge :status="job.status" />
-              <h3 class="text-sm font-medium text-white truncate">
-                {{ job.target }}
-              </h3>
+              <div class="flex-1 min-w-0">
+                <h3 class="text-sm font-medium text-white truncate">
+                  {{ job.original_target || job.target }}
+                </h3>
+                <p v-if="job.original_target && job.target !== job.original_target" class="text-xs text-gray-500 truncate">
+                  IP: {{ job.target }}
+                </p>
+              </div>
             </div>
             <p class="text-xs text-gray-400 mt-1 truncate">
               {{ job.description || 'No description' }}
@@ -58,8 +71,9 @@
 </template>
 
 <script setup>
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ChevronRightIcon, ArrowRightIcon } from '@heroicons/vue/24/outline'
+import { ChevronRightIcon, ArrowRightIcon, ArrowPathIcon } from '@heroicons/vue/24/outline'
 import StatusBadge from '../common/StatusBadge.vue'
 import EmptyState from '../common/EmptyState.vue'
 import { formatRelativeTime, formatPhaseName } from '../../utils/formatters'
@@ -71,9 +85,21 @@ defineProps({
   },
 })
 
+const emit = defineEmits(['refresh'])
+
 const router = useRouter()
+const refreshing = ref(false)
 
 const navigateToJob = (jobId) => {
   router.push(`/job/${jobId}`)
+}
+
+const handleRefresh = async () => {
+  refreshing.value = true
+  await emit('refresh')
+  // Keep spinning for at least 500ms for visual feedback
+  setTimeout(() => {
+    refreshing.value = false
+  }, 500)
 }
 </script>

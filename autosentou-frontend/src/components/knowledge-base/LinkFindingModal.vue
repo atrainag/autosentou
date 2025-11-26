@@ -18,7 +18,7 @@
               @click="handleClose"
               class="text-gray-400 hover:text-white transition-colors"
             >
-              ✕
+              <XMarkIcon class="w-6 h-6" />
             </button>
           </div>
         </div>
@@ -39,7 +39,10 @@
           <!-- AI Matching Section -->
           <div class="space-y-3">
             <div class="flex items-center justify-between">
-              <h5 class="text-sm font-medium text-gray-300">🤖 AI-Powered Matching</h5>
+              <h5 class="text-sm font-medium text-gray-300 flex items-center space-x-2">
+                <CpuChipIcon class="w-5 h-5 text-cyber-cyan" />
+                <span>AI-Powered Matching</span>
+              </h5>
               <button
                 @click="testMatch"
                 :disabled="testing"
@@ -53,7 +56,8 @@
             <div v-if="matchResult" class="bg-cyber-darker p-4 rounded-lg border border-gray-800">
               <div v-if="matchResult.matched" class="space-y-3">
                 <div class="flex items-center space-x-2">
-                  <span class="text-green-400">✓ Match Found</span>
+                  <CheckCircleIcon class="w-5 h-5 text-green-400" />
+                  <span class="text-green-400">Match Found</span>
                   <span class="text-sm text-gray-400">
                     ({{ (matchResult.similarity_score * 100).toFixed(1) }}% similarity)
                   </span>
@@ -75,15 +79,19 @@
                   </button>
                 </div>
               </div>
-              <div v-else class="text-yellow-400">
-                ⚠️ No automatic match found. Search manually below.
+              <div v-else class="flex items-center space-x-2 text-yellow-400">
+                <ExclamationTriangleIcon class="w-5 h-5" />
+                <span>No automatic match found. Search manually below.</span>
               </div>
             </div>
           </div>
 
           <!-- Manual Search Section -->
           <div class="space-y-3">
-            <h5 class="text-sm font-medium text-gray-300">🔍 Manual Search</h5>
+            <h5 class="text-sm font-medium text-gray-300 flex items-center space-x-2">
+              <MagnifyingGlassIcon class="w-5 h-5" />
+              <span>Manual Search</span>
+            </h5>
             <div class="flex space-x-2">
               <input
                 v-model="searchQuery"
@@ -125,8 +133,8 @@
                     <span v-if="vuln.cve_id" class="text-cyber-cyan text-sm">{{ vuln.cve_id }}</span>
                   </div>
                 </div>
-                <div v-if="selectedKb?.id === vuln.id" class="text-cyber-cyan text-xl">
-                  ✓
+                <div v-if="selectedKb?.id === vuln.id">
+                  <CheckCircleIcon class="w-6 h-6 text-cyber-cyan" />
                 </div>
               </div>
             </div>
@@ -167,6 +175,13 @@ import { ref } from 'vue'
 import { useKnowledgeBaseStore } from '../../stores/knowledgeBase'
 import LoadingSpinner from '../common/LoadingSpinner.vue'
 import SeverityBadge from '../common/SeverityBadge.vue'
+import {
+  XMarkIcon,
+  CpuChipIcon,
+  CheckCircleIcon,
+  ExclamationTriangleIcon,
+  MagnifyingGlassIcon
+} from '@heroicons/vue/24/outline'
 
 const props = defineProps({
   finding: {

@@ -22,14 +22,18 @@ def generate_summary_report(job: Job, summary_data: Dict[str, Any]) -> str:
 
     # Header
     lines.append("# Penetration Testing Report - Executive Summary\n\n")
-    lines.append(f"**Target:** {job.target}\n\n")
+    if job.original_target and job.original_target != job.target:
+        lines.append(f"**Target:** {job.original_target} (IP: {job.target})\n\n")
+    else:
+        lines.append(f"**Target:** {job.target}\n\n")
     lines.append(f"**Report Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
     lines.append(f"**Job ID:** {job.id}\n\n")
     lines.append("---\n\n")
 
     # Executive Summary
     lines.append("## Executive Summary\n\n")
-    lines.append(f"This penetration test was conducted on **{job.target}** using the Autosentou "
+    target_display = f"{job.original_target} ({job.target})" if (job.original_target and job.original_target != job.target) else job.target
+    lines.append(f"This penetration test was conducted on **{target_display}** using the Autosentou "
                 "automated penetration testing platform. The assessment included:\n\n")
     lines.append("- Information Gathering and Network Reconnaissance\n")
     lines.append("- Vulnerability Analysis and CVE Detection\n")

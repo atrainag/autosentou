@@ -93,7 +93,10 @@
                 <StatusBadge :status="job.status" />
               </td>
               <td class="px-6 py-4">
-                <div class="text-sm font-medium text-white">{{ job.target }}</div>
+                <div class="text-sm font-medium text-white">{{ job.original_target || job.target }}</div>
+                <div v-if="job.original_target && job.target !== job.original_target" class="text-xs text-gray-500">
+                  Scanning: {{ job.target }}
+                </div>
               </td>
               <td class="px-6 py-4">
                 <div class="text-sm text-gray-300 max-w-xs truncate">

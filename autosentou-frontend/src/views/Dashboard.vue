@@ -6,8 +6,9 @@
         <h1 class="text-3xl font-bold text-white neon-glow">Dashboard</h1>
         <p class="text-gray-400 mt-1">Automated Penetration Testing Platform</p>
       </div>
-      <router-link to="/scan/create" class="btn-primary">
-        🚀 Start New Scan
+      <router-link to="/scan/create" class="btn-primary flex items-center space-x-2">
+        <RocketLaunchIcon class="w-5 h-5" />
+        <span>Start New Scan</span>
       </router-link>
     </div>
 
@@ -18,7 +19,7 @@
     >
       <div class="flex items-start justify-between">
         <div class="flex items-start space-x-3">
-          <div class="text-2xl">⚠️</div>
+          <ExclamationTriangleIcon class="w-8 h-8 text-yellow-400" />
           <div>
             <h3 class="text-yellow-300 font-semibold">
               {{ kbStore.uncategorizedFindings }} Uncategorized Finding{{
@@ -45,33 +46,33 @@
       <StatCard
         label="Total Scans"
         :value="jobsStore.jobs.length"
-        icon="📊"
+        icon="chart-bar"
         iconColor="text-cyber-cyan"
       />
       <StatCard
         label="Active Scans"
         :value="jobsStore.activeJobs.length"
-        icon="🔄"
+        icon="arrow-path"
         iconColor="text-blue-500"
         :subtitle="jobsStore.activeJobs.length > 0 ? 'In Progress' : 'No active scans'"
       />
       <StatCard
         label="Completed"
         :value="jobsStore.completedJobs.length"
-        icon="✅"
+        icon="check-circle"
         iconColor="text-green-500"
       />
       <StatCard
-        label="Vulnerabilities"
-        :value="jobsStore.totalVulnerabilities"
-        icon="⚠️"
-        iconColor="text-red-500"
-        subtitle="Total found"
+        label="Total Findings"
+        :value="jobsStore.totalFindings"
+        icon="document-text"
+        iconColor="text-yellow-500"
+        subtitle="Across all scans"
       />
     </div>
 
     <!-- Recent Scans -->
-    <RecentScans :jobs="recentJobs" />
+    <RecentScans :jobs="recentJobs" @refresh="handleRefreshJobs" />
 
     <!-- Quick Actions -->
     <div class="card p-6">
@@ -81,7 +82,7 @@
           to="/scan/create"
           class="p-4 border border-gray-700 rounded-lg hover:border-cyber-cyan transition-colors"
         >
-          <div class="text-3xl mb-2">🚀</div>
+          <RocketLaunchIcon class="w-10 h-10 mb-2 text-cyber-cyan" />
           <h3 class="font-semibold text-white mb-1">New Scan</h3>
           <p class="text-sm text-gray-400">Start a new penetration test</p>
         </router-link>
@@ -90,7 +91,7 @@
           to="/jobs"
           class="p-4 border border-gray-700 rounded-lg hover:border-cyber-cyan transition-colors"
         >
-          <div class="text-3xl mb-2">📋</div>
+          <ClipboardDocumentListIcon class="w-10 h-10 mb-2 text-blue-400" />
           <h3 class="font-semibold text-white mb-1">View All Jobs</h3>
           <p class="text-sm text-gray-400">Browse all scan jobs</p>
         </router-link>
@@ -99,7 +100,7 @@
           to="/wordlists"
           class="p-4 border border-gray-700 rounded-lg hover:border-cyber-cyan transition-colors"
         >
-          <div class="text-3xl mb-2">📝</div>
+          <DocumentTextIcon class="w-10 h-10 mb-2 text-purple-400" />
           <h3 class="font-semibold text-white mb-1">Wordlists</h3>
           <p class="text-sm text-gray-400">Manage custom wordlists</p>
         </router-link>
@@ -115,6 +116,12 @@ import { useKnowledgeBaseStore } from '../stores/knowledgeBase'
 import StatCard from '../components/dashboard/StatCard.vue'
 import RecentScans from '../components/dashboard/RecentScans.vue'
 import LoadingSpinner from '../components/common/LoadingSpinner.vue'
+import {
+  RocketLaunchIcon,
+  ClipboardDocumentListIcon,
+  DocumentTextIcon,
+  ExclamationTriangleIcon
+} from '@heroicons/vue/24/outline'
 
 const jobsStore = useJobsStore()
 const kbStore = useKnowledgeBaseStore()
@@ -126,9 +133,14 @@ const recentJobs = computed(() => {
     .slice(0, 5)
 })
 
+const handleRefreshJobs = async () => {
+  await jobsStore.fetchJobs()
+}
+
 onMounted(async () => {
   await Promise.all([
     jobsStore.fetchJobs(),
+    jobsStore.fetchTotalFindings(),
     kbStore.fetchStats()
   ])
 })

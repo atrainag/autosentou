@@ -17,6 +17,7 @@ langchain-google-genai
 playwright
 beautifulsoup4
 markdown2
+markdown
 PyPDF2
 # Document conversion dependencies
 weasyprint

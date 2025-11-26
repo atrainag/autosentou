@@ -75,36 +75,11 @@
       <div class="p-6 border-b border-gray-800">
         <div class="flex items-center justify-between">
           <h2 class="text-xl font-semibold text-white">
-            Uncategorized Findings
+            Categorized Findings
             <span class="text-sm text-gray-400 font-normal ml-2">
-              ({{ kbStore.uncategorizedPagination.total }} total)
+              ({{ kbStore.categorizedPagination.total }} total)
             </span>
           </h2>
-          <div class="flex items-center space-x-3">
-            <button
-              v-if="kbStore.uncategorizedPagination.total > 0 && !kbStore.isRecategorizing"
-              @click="handleRecategorizeAll"
-              class="btn-primary flex items-center space-x-2"
-            >
-              <CpuChipIcon class="w-5 h-5" />
-              <span>AI Re-categorize All</span>
-            </button>
-            <div v-if="kbStore.isRecategorizing" class="flex items-center space-x-3">
-              <span class="text-gray-300 flex items-center space-x-2">
-                <ArrowPathIcon class="w-5 h-5 animate-spin" />
-                <span>Processing {{ kbStore.recategorizeProgress.current }}/{{ kbStore.recategorizeProgress.total }}...</span>
-              </span>
-              <button
-                @click="handleCancelRecategorization"
-                class="btn-danger flex items-center space-x-2"
-                :disabled="kbStore.isCancelling"
-              >
-                <StopCircleIcon v-if="!kbStore.isCancelling" class="w-5 h-5" />
-                <ArrowPathIcon v-else class="w-5 h-5 animate-spin" />
-                <span>{{ kbStore.isCancelling ? 'Cancelling...' : 'Cancel' }}</span>
-              </button>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -112,13 +87,13 @@
       <LoadingSpinner v-if="kbStore.loading" />
 
       <!-- Empty State -->
-      <div v-else-if="kbStore.uncategorizedFindingsList.length === 0" class="p-6">
+      <div v-else-if="kbStore.categorizedFindingsList.length === 0" class="p-6">
         <EmptyState
-          title="No uncategorized findings"
-          description="All findings have been categorized! Great work."
+          title="No categorized findings"
+          description="Findings that are linked to KB entries will appear here."
         >
           <template #icon>
-            <CheckCircleIcon class="w-16 h-16 mx-auto text-green-500" />
+            <CheckCircleIcon class="w-16 h-16 mx-auto text-gray-600" />
           </template>
         </EmptyState>
       </div>
@@ -155,23 +130,29 @@
                   @sort="handleSort"
                 />
               </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-32">
-                OWASP
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-1/5">
+                Linked KB Entry
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-24">
+                Similarity
               </th>
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-32">
-                CVE / CWE
+                <SortableTableHeader
+                  label="Linked At"
+                  column="linked_at"
+                  :current-sort="sortBy"
+                  :current-order="sortOrder"
+                  @sort="handleSort"
+                />
               </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-40">
-                Service / URL
-              </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-32">
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-20">
                 Actions
               </th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-800">
             <tr
-              v-for="finding in kbStore.uncategorizedFindingsList"
+              v-for="finding in kbStore.categorizedFindingsList"
               :key="finding.id"
               class="hover:bg-cyber-dark transition-colors"
             >
@@ -191,35 +172,38 @@
                 <SeverityBadge :severity="finding.severity" />
               </td>
               <td class="px-6 py-4">
-                <span v-if="finding.owasp_category" class="text-xs text-gray-300 bg-gray-800 px-2 py-1 rounded">
-                  {{ finding.owasp_category }}
+                <div v-if="finding.kb_link" class="space-y-1">
+                  <div class="text-white font-medium">{{ finding.kb_link.name }}</div>
+                  <div class="text-xs text-gray-400">
+                    <span v-if="finding.kb_link.category" class="badge-secondary mr-1">
+                      {{ finding.kb_link.category }}
+                    </span>
+                    <span v-if="finding.kb_link.cve_id" class="text-cyber-cyan">
+                      {{ finding.kb_link.cve_id }}
+                    </span>
+                  </div>
+                </div>
+                <span v-else class="text-gray-500 text-sm">Not linked</span>
+              </td>
+              <td class="px-6 py-4">
+                <div v-if="finding.kb_link && finding.kb_link.similarity_score" class="flex items-center space-x-2">
+                  <div class="w-12 bg-gray-700 rounded-full h-2">
+                    <div
+                      class="bg-green-500 h-2 rounded-full"
+                      :style="{ width: `${finding.kb_link.similarity_score * 100}%` }"
+                    ></div>
+                  </div>
+                  <span class="text-xs text-gray-400">
+                    {{ (finding.kb_link.similarity_score * 100).toFixed(0) }}%
+                  </span>
+                </div>
+                <span v-else class="text-gray-500 text-sm">Manual</span>
+              </td>
+              <td class="px-6 py-4">
+                <span v-if="finding.kb_link && finding.kb_link.linked_at" class="text-xs text-gray-400">
+                  {{ formatRelativeTime(finding.kb_link.linked_at) }}
                 </span>
                 <span v-else class="text-gray-500 text-sm">-</span>
-              </td>
-              <td class="px-6 py-4">
-                <div class="text-xs space-y-1">
-                  <div v-if="finding.cve_id">
-                    <span class="text-gray-400">CVE:</span>
-                    <span class="text-cyber-cyan ml-1">{{ finding.cve_id }}</span>
-                  </div>
-                  <div v-if="finding.evidence && typeof finding.evidence === 'object' && finding.evidence.cwe_id">
-                    <span class="text-gray-400">CWE:</span>
-                    <span class="text-purple-400 ml-1">{{ finding.evidence.cwe_id }}</span>
-                  </div>
-                  <span v-if="!finding.cve_id && (!finding.evidence || !finding.evidence.cwe_id)" class="text-gray-500">-</span>
-                </div>
-              </td>
-              <td class="px-6 py-4">
-                <div class="text-sm">
-                  <div v-if="finding.service" class="text-white">
-                    {{ finding.service }}
-                    <span v-if="finding.port" class="text-gray-400">:{{ finding.port }}</span>
-                  </div>
-                  <div v-if="finding.url" class="text-cyber-cyan truncate max-w-xs">
-                    {{ finding.url }}
-                  </div>
-                  <span v-if="!finding.service && !finding.url" class="text-gray-500">-</span>
-                </div>
               </td>
               <td class="px-6 py-4">
                 <div class="flex items-center space-x-2">
@@ -230,13 +214,6 @@
                   >
                     <EyeIcon class="w-5 h-5" />
                   </button>
-                  <button
-                    @click="handleLink(finding)"
-                    class="text-green-400 hover:text-green-300"
-                    title="Link to KB"
-                  >
-                    <LinkIcon class="w-5 h-5" />
-                  </button>
                 </div>
               </td>
             </tr>
@@ -245,27 +222,27 @@
       </div>
 
       <!-- Pagination -->
-      <div v-if="kbStore.uncategorizedPagination.totalPages > 1" class="p-6 border-t border-gray-800">
+      <div v-if="kbStore.categorizedPagination.totalPages > 1" class="p-6 border-t border-gray-800">
         <div class="flex items-center justify-between">
           <div class="text-sm text-gray-400">
-            Showing {{ (kbStore.uncategorizedPagination.page - 1) * kbStore.uncategorizedPagination.limit + 1 }} to
-            {{ Math.min(kbStore.uncategorizedPagination.page * kbStore.uncategorizedPagination.limit, kbStore.uncategorizedPagination.total) }} of
-            {{ kbStore.uncategorizedPagination.total }} results
+            Showing {{ (kbStore.categorizedPagination.page - 1) * kbStore.categorizedPagination.limit + 1 }} to
+            {{ Math.min(kbStore.categorizedPagination.page * kbStore.categorizedPagination.limit, kbStore.categorizedPagination.total) }} of
+            {{ kbStore.categorizedPagination.total }} results
           </div>
           <div class="flex items-center space-x-2">
             <button
-              @click="kbStore.setUncategorizedPage(kbStore.uncategorizedPagination.page - 1)"
-              :disabled="kbStore.uncategorizedPagination.page === 1"
+              @click="kbStore.setCategorizedPage(kbStore.categorizedPagination.page - 1)"
+              :disabled="kbStore.categorizedPagination.page === 1"
               class="btn-secondary px-3 py-1 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
               ← Previous
             </button>
             <span class="text-white">
-              Page {{ kbStore.uncategorizedPagination.page }} of {{ kbStore.uncategorizedPagination.totalPages }}
+              Page {{ kbStore.categorizedPagination.page }} of {{ kbStore.categorizedPagination.totalPages }}
             </span>
             <button
-              @click="kbStore.setUncategorizedPage(kbStore.uncategorizedPagination.page + 1)"
-              :disabled="kbStore.uncategorizedPagination.page === kbStore.uncategorizedPagination.totalPages"
+              @click="kbStore.setCategorizedPage(kbStore.categorizedPagination.page + 1)"
+              :disabled="kbStore.categorizedPagination.page === kbStore.categorizedPagination.totalPages"
               class="btn-secondary px-3 py-1 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Next →
@@ -280,15 +257,6 @@
       v-if="showDetailsModal"
       :finding="selectedFinding"
       @close="showDetailsModal = false"
-      @link="handleLink(selectedFinding)"
-    />
-
-    <!-- Link to KB Modal -->
-    <LinkFindingModal
-      v-if="showLinkModal"
-      :finding="selectedFinding"
-      @close="showLinkModal = false"
-      @linked="handleLinked"
     />
   </div>
 </template>
@@ -296,36 +264,29 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useKnowledgeBaseStore } from '../../stores/knowledgeBase'
-import { useAppStore } from '../../stores/app'
 import LoadingSpinner from '../common/LoadingSpinner.vue'
 import EmptyState from '../common/EmptyState.vue'
 import SeverityBadge from '../common/SeverityBadge.vue'
 import SortableTableHeader from '../common/SortableTableHeader.vue'
 import FindingDetailsModal from './FindingDetailsModal.vue'
-import LinkFindingModal from './LinkFindingModal.vue'
+import { formatRelativeTime } from '../../utils/formatters'
 import {
   MagnifyingGlassIcon,
   ShieldExclamationIcon,
   FolderIcon,
-  CpuChipIcon,
-  ArrowPathIcon,
-  StopCircleIcon,
   CheckCircleIcon,
-  EyeIcon,
-  LinkIcon
+  EyeIcon
 } from '@heroicons/vue/24/outline'
 
 const kbStore = useKnowledgeBaseStore()
-const appStore = useAppStore()
 
 // State
 const searchQuery = ref('')
 const severityFilter = ref(null)
 const typeFilter = ref(null)
 const showDetailsModal = ref(false)
-const showLinkModal = ref(false)
 const selectedFinding = ref(null)
-const sortBy = ref('created_at')
+const sortBy = ref('linked_at')
 const sortOrder = ref('desc')
 
 // Computed
@@ -353,7 +314,7 @@ const handleSort = (column) => {
     sortOrder.value = 'desc'
   }
 
-  kbStore.setUncategorizedFilters({
+  kbStore.setCategorizedFilters({
     search: searchQuery.value,
     severity: severityFilter.value,
     finding_type: typeFilter.value,
@@ -363,7 +324,7 @@ const handleSort = (column) => {
 }
 
 const handleFilterChange = () => {
-  kbStore.setUncategorizedFilters({
+  kbStore.setCategorizedFilters({
     search: searchQuery.value,
     severity: severityFilter.value,
     finding_type: typeFilter.value,
@@ -381,7 +342,7 @@ const clearAllFilters = () => {
   searchQuery.value = ''
   severityFilter.value = null
   typeFilter.value = null
-  kbStore.clearUncategorizedFilters()
+  kbStore.clearCategorizedFilters()
 }
 
 const handleView = (finding) => {
@@ -389,145 +350,10 @@ const handleView = (finding) => {
   showDetailsModal.value = true
 }
 
-const handleLink = (finding) => {
-  selectedFinding.value = finding
-  showDetailsModal.value = false
-  showLinkModal.value = true
-}
-
-const handleLinked = async () => {
-  showLinkModal.value = false
-  selectedFinding.value = null
-  // Refresh the list and stats
-  await Promise.all([
-    kbStore.fetchUncategorizedFindings(),
-    kbStore.fetchStats()
-  ])
-}
-
-const handleRecategorizeAll = async () => {
-  const total = kbStore.uncategorizedPagination.total
-
-  if (!confirm(
-    `This will re-categorize ${total} uncategorized findings using AI.\n\n` +
-    `⏱ Estimated time: ~${Math.ceil(total / 10)} minutes (due to API rate limits)\n\n` +
-    `The process will run in the background. Continue?`
-  )) {
-    return
-  }
-
-  kbStore.setRecategorizing(true)
-  kbStore.setRecategorizeProgress(0, total)
-
-  try {
-    const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-    const eventSource = new EventSource(`${baseURL}/knowledge-base/recategorize-uncategorized-stream`)
-
-    eventSource.onmessage = (event) => {
-      const data = JSON.parse(event.data)
-
-      if (data.type === 'progress') {
-        kbStore.setRecategorizeProgress(data.current, data.total)
-      } else if (data.type === 'complete') {
-        eventSource.close()
-        kbStore.resetRecategorization()
-
-        appStore.showToast({
-          message: `✓ Re-categorization complete!\n${data.successful} successful, ${data.failed} failed`,
-          type: 'success'
-        })
-
-        // Refresh the list and stats
-        Promise.all([
-          kbStore.fetchUncategorizedFindings(),
-          kbStore.fetchStats()
-        ])
-      } else if (data.type === 'cancelled') {
-        eventSource.close()
-        kbStore.resetRecategorization()
-
-        appStore.showToast({
-          message: `Re-categorization cancelled.\n${data.successful} successful, ${data.failed} failed`,
-          type: 'info'
-        })
-
-        // Refresh the list and stats
-        Promise.all([
-          kbStore.fetchUncategorizedFindings(),
-          kbStore.fetchStats()
-        ])
-      } else if (data.type === 'error') {
-        eventSource.close()
-        kbStore.resetRecategorization()
-
-        appStore.showToast({
-          message: `Error: ${data.message}`,
-          type: 'error'
-        })
-      }
-    }
-
-    eventSource.onerror = (error) => {
-      console.error('EventSource error:', error)
-      eventSource.close()
-      kbStore.resetRecategorization()
-
-      appStore.showToast({
-        message: 'Connection error. Check logs for details.',
-        type: 'error'
-      })
-    }
-
-  } catch (error) {
-    console.error('Error starting re-categorization:', error)
-    kbStore.resetRecategorization()
-
-    appStore.showToast({
-      message: 'Failed to start re-categorization. Check logs for details.',
-      type: 'error'
-    })
-  }
-}
-
-const handleCancelRecategorization = async () => {
-  if (!confirm('Are you sure you want to cancel the re-categorization?\n\nProgress will be saved up to the current finding.')) {
-    return
-  }
-
-  kbStore.setCancelling(true)
-
-  try {
-    const response = await fetch(
-      `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/knowledge-base/cancel-recategorization`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      }
-    )
-
-    if (!response.ok) {
-      throw new Error('Failed to cancel re-categorization')
-    }
-
-    appStore.showToast({
-      message: 'Cancellation requested - stopping after current finding...',
-      type: 'info'
-    })
-
-  } catch (error) {
-    console.error('Error cancelling re-categorization:', error)
-    appStore.showToast({
-      message: 'Failed to request cancellation',
-      type: 'error'
-    })
-    cancelling.value = false
-  }
-}
-
 // Lifecycle
 onMounted(async () => {
   await Promise.all([
-    kbStore.fetchUncategorizedFindings(),
+    kbStore.fetchCategorizedFindings(),
     kbStore.fetchAvailableFindingTypes(),
   ])
 })

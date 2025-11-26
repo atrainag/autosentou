@@ -454,11 +454,98 @@ class FindingsPopulator:
         return findings_count
 
     def _extract_auth_findings(self) -> int:
-        """Extract authentication vulnerabilities."""
+        """Extract authentication vulnerabilities (including SQLMap results)."""
         auth_data = self.phases_data.get('authentication_testing', {})
-        login_tests = auth_data.get('login_response_tests', [])
 
         findings_count = 0
+
+        # NEW: Extract from vulnerabilities_found array (includes SQLMap results)
+        vulnerabilities_found = auth_data.get('vulnerabilities_found', [])
+
+        for vuln in vulnerabilities_found:
+            vuln_type = vuln.get('type', 'Unknown')
+
+            if vuln_type == 'SQL Injection':
+                # SQLMap confirmed SQL injection
+                url = vuln.get('url', '')
+                techniques = vuln.get('techniques', [])
+                techniques_str = ', '.join(techniques) if techniques else 'Unknown'
+
+                finding_data = {
+                    'title': f'SQL Injection (SQLMap Confirmed)',
+                    'description': f'SQLMap confirmed SQL injection at {url}',
+                    'finding_type': 'sqli',
+                    'severity': 'Critical'
+                }
+
+                # Categorize
+                severity, owasp_category = self.categorizer.categorize(finding_data)
+
+                finding = Finding(
+                    job_id=self.job.id,
+                    title='SQL Injection (SQLMap Confirmed)',
+                    description=f'SQLMap confirmed SQL injection vulnerability at {url}. '
+                               f'Detected techniques: {techniques_str}. '
+                               f'This is a CRITICAL vulnerability that allows attackers to read/modify database contents.',
+                    finding_type='sqli',
+                    severity='Critical',  # Always critical if SQLMap confirmed
+                    owasp_category='A03:2021 - Injection',
+                    url=url,
+                    remediation='IMMEDIATE ACTION REQUIRED: Use parameterized queries (prepared statements). '
+                               'Never concatenate user input into SQL queries. Implement input validation. '
+                               'Review and patch all database access code.',
+                    poc=f'SQLMap output: {vuln.get("sqlmap_output", "N/A")}',
+                    evidence={
+                        'techniques': techniques,
+                        'sqlmap_output': vuln.get('sqlmap_output', ''),
+                        'confirmed_by': 'SQLMap',
+                        'cvss': vuln.get('cvss', 9.8)
+                    }
+                )
+
+                self.db_session.add(finding)
+                self.db_session.flush()
+                self._intelligent_categorize_and_link(finding, finding_data)
+                findings_count += 1
+
+            elif vuln_type == 'Username Enumeration':
+                # Username enumeration vulnerability
+                url = vuln.get('url', '')
+                method = vuln.get('method', 'Unknown')
+
+                finding_data = {
+                    'title': 'Username Enumeration Vulnerability',
+                    'description': f'Username enumeration at {url}',
+                    'finding_type': 'authentication',
+                    'severity': vuln.get('severity', 'Low')
+                }
+
+                severity, owasp_category = self.categorizer.categorize(finding_data)
+
+                finding = Finding(
+                    job_id=self.job.id,
+                    title='Username Enumeration Vulnerability',
+                    description=f'The login page at {url} reveals whether usernames exist through '
+                               f'{method}. This allows attackers to enumerate valid usernames.',
+                    finding_type='authentication',
+                    severity=severity,
+                    owasp_category=owasp_category,
+                    url=url,
+                    remediation='Implement consistent error messages for both valid and invalid usernames. '
+                               'Use generic messages like "Invalid username or password".',
+                    evidence={
+                        'method': method,
+                        'evidence': vuln.get('evidence', [])
+                    }
+                )
+
+                self.db_session.add(finding)
+                self.db_session.flush()
+                self._intelligent_categorize_and_link(finding, finding_data)
+                findings_count += 1
+
+        # OLD: Also check login_response_tests for backwards compatibility
+        login_tests = auth_data.get('login_response_tests', [])
 
         for test in login_tests:
             ai_analysis = test.get('ai_analysis', {})
@@ -706,7 +793,82 @@ class FindingsPopulator:
 
             findings_count += 1
 
-        logger.info(f"[DEBUG] Successfully extracted {findings_count} web analysis findings ({self.skipped_recategorizations} skipped re-categorization)")
+            # NEW: Extract XSS findings from xss_test_result
+            xss_test_result = web_finding.get('xss_test_result', {})
+            if xss_test_result.get('xss_confirmed'):
+                # XSS vulnerability found!
+                successful_payloads = xss_test_result.get('successful_payloads', [])
+
+                for payload_info in successful_payloads:
+                    field_name = payload_info.get('field', 'unknown')
+                    payload = payload_info.get('payload', '')
+                    field_context = payload_info.get('field_context', {})
+
+                    xss_finding_data = {
+                        'title': f'Cross-Site Scripting (XSS) in {field_name}',
+                        'description': f'XSS vulnerability detected in input field "{field_name}" at {url}',
+                        'finding_type': 'xss',
+                        'severity': 'High'
+                    }
+
+                    # Create XSS Finding
+                    xss_finding = Finding(
+                        job_id=self.job.id,
+                        title=f'Cross-Site Scripting (XSS) - {field_name} field',
+                        description=f'Cross-Site Scripting (XSS) vulnerability confirmed at {url}. '
+                                   f'The application accepts and executes malicious JavaScript code in the "{field_name}" input field. '
+                                   f'Successful payload: {payload}',
+                        finding_type='xss',
+                        severity='High',
+                        owasp_category='A03:2021 - Injection',
+                        url=url,
+                        remediation='Implement proper input validation and output encoding. '
+                                   'Use Content Security Policy (CSP) headers. '
+                                   'Sanitize all user inputs before rendering. '
+                                   'Consider using security libraries like DOMPurify for client-side sanitization.',
+                        poc=f'Successful XSS payload: {payload}',
+                        evidence={
+                            'field_name': field_name,
+                            'successful_payload': payload,
+                            'field_type': field_context.get('type', 'text'),
+                            'field_maxlength': field_context.get('maxlength'),
+                            'input_fields_tested': xss_test_result.get('input_fields_found', 0),
+                            'payloads_tested': xss_test_result.get('payloads_tested', 0),
+                            'all_successful_payloads': successful_payloads,
+                            'xss_trace': xss_test_result.get('trace', []),
+                            'confirmed_by': 'AI-Generated Payloads'
+                        }
+                    )
+
+                    self.db_session.add(xss_finding)
+                    self.db_session.flush()
+
+                    # Try KB matching (XSS is common, might have KB entries)
+                    threshold = kb_service.get_similarity_threshold(self.db_session)
+                    match_result = kb_service.match_finding_to_kb(
+                        db=self.db_session,
+                        finding_description=xss_finding_data.get('description', ''),
+                        finding_title=xss_finding_data.get('title', ''),
+                        threshold=threshold
+                    )
+
+                    if match_result and match_result['matched']:
+                        kb_service.link_finding_to_kb(
+                            db=self.db_session,
+                            finding_id=xss_finding.id,
+                            kb_id=match_result['kb_entry'].id,
+                            similarity_score=match_result['similarity_score']
+                        )
+                        self.kb_matches += 1
+                        xss_finding.is_categorized = True
+                    else:
+                        # Use AI categorization for XSS
+                        self._intelligent_categorize_and_link(xss_finding, xss_finding_data)
+
+                    findings_count += 1
+                    logger.info(f"    → Extracted XSS finding: {field_name} field at {url[:50]}")
+
+        logger.info(f"[DEBUG] Successfully extracted {findings_count} web analysis findings (including XSS, {self.skipped_recategorizations} skipped re-categorization)")
         return findings_count
 
 

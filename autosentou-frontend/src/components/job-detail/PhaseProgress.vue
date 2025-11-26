@@ -22,14 +22,13 @@
           <!-- Icon/Status -->
           <div
             :class="[
-              'flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center text-xl',
+              'flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center',
               getPhaseColor(phase.status)
             ]"
           >
-            <span v-if="phase.status === 'running'" class="animate-spin">⚙️</span>
-            <span v-else-if="phase.status === 'completed'">✅</span>
-            <span v-else-if="phase.status === 'failed'">❌</span>
-            <span v-else>{{ getPhaseIcon(phase.phase_name) }}</span>
+            <ArrowPathIcon v-if="phase.status === 'running'" class="w-6 h-6 animate-spin" />
+            <XCircleIcon v-else-if="phase.status === 'failed'" class="w-7 h-7" />
+            <component v-else :is="getPhaseIconComponent(phase.phase_name)" class="w-6 h-6" />
           </div>
 
           <!-- Phase Info -->
@@ -55,7 +54,17 @@
 
 <script setup>
 import StatusBadge from '../common/StatusBadge.vue'
-import { formatPhaseName, getPhaseIcon, formatRelativeTime } from '../../utils/formatters'
+import { formatPhaseName, formatRelativeTime } from '../../utils/formatters'
+import {
+  ArrowPathIcon,
+  XCircleIcon,
+  MagnifyingGlassIcon,
+  GlobeAltIcon,
+  ShieldExclamationIcon,
+  BugAntIcon,
+  LockClosedIcon,
+  DocumentTextIcon
+} from '@heroicons/vue/24/outline'
 
 defineProps({
   phases: {
@@ -64,10 +73,24 @@ defineProps({
   },
 })
 
+const getPhaseIconComponent = (phaseName) => {
+  const iconMap = {
+    'Information Gathering': MagnifyingGlassIcon,
+    'Web Enumeration': GlobeAltIcon,
+    'Web Analysis': ShieldExclamationIcon,
+    'Vulnerability Analysis': BugAntIcon,
+    'SQL Injection Testing': BugAntIcon,
+    'Authentication Testing': LockClosedIcon,
+    'Report Generation': DocumentTextIcon,
+  }
+  return iconMap[phaseName] || MagnifyingGlassIcon
+}
+
 const getPhaseColor = (status) => {
   const colors = {
     running: 'bg-blue-600 text-white',
     completed: 'bg-green-600 text-white',
+    success: 'bg-green-600 text-white',
     failed: 'bg-red-600 text-white',
     pending: 'bg-gray-700 text-gray-400',
   }
@@ -75,7 +98,7 @@ const getPhaseColor = (status) => {
 }
 
 const getLineColor = (status) => {
-  return status === 'completed' ? 'bg-green-600' : 'bg-gray-700'
+  return (status === 'completed' || status === 'success') ? 'bg-green-600' : 'bg-gray-700'
 }
 
 const getPhaseDescription = (phaseName) => {
